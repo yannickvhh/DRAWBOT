@@ -11,13 +11,13 @@
 > PID tuning for precise wheel positioning (motor_control.ino).
 
  > Encoder pulse counting for distance/angle tracking.
-# Wireless Commands
+- Wireless Commands
 
 > UART/Bluetooth/Wi-Fi input parsing (commands.ino).
 
 > Example: CIRCLE 10cm draws a 10cm-radius circle.
 
-# Sensor Fusion
+- Sensor Fusion
 
 > IMU (LSM6DS3) for tilt compensation.
 
