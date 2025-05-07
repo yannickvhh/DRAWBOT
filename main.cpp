@@ -54,4 +54,21 @@ void loop(){
     delay(500);
     digitalWrite(LEDU1, LOW);
     delay(500);
+    
+     //test tourner roue droite:
+    digitalWrite(IN_1_D, LOW);//active la roue DROITE en avant pdt 1sec
+    digitalWrite(IN_2_D, HIGH);
+    delay(1000);
+
+    digitalWrite(IN_1_D, LOW);//arret pdt 1sec
+    digitalWrite(IN_2_D, LOW);
+    delay(1000);
+
+    digitalWrite(IN_1_D, HIGH);//active la roue DROITE en arriere pdt 1sec
+    digitalWrite(IN_2_D, LOW);
+    delay(1000);
+    
+    digitalWrite(IN_1_D,LOW);//arret 2sec
+    digitalWrite(IN_2_D,LOW);
+    delay(2000);
 }
