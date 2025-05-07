@@ -71,4 +71,22 @@ void loop(){
     digitalWrite(IN_1_D,LOW);//arret 2sec
     digitalWrite(IN_2_D,LOW);
     delay(2000);
+
+
+        //test tourner roue GAUCHE:
+    digitalWrite(IN_1_G, HIGH);//active la roue GAUCHE en avant pdt 1sec
+    digitalWrite(IN_2_G, LOW);
+    delay(1000);
+
+    digitalWrite(IN_1_G, LOW);//arret pdt 1sec
+    digitalWrite(IN_2_G, LOW);
+    delay(1000);
+
+    digitalWrite(IN_1_G, LOW);//active la roue GAUCHE en arriere pdt 1sec
+    digitalWrite(IN_2_G, HIGH);
+    delay(1000);
+    
+    digitalWrite(IN_1_G,LOW);//ARRET 2 sec
+    digitalWrite(IN_2_G,LOW);
+    delay(2000);
 }
