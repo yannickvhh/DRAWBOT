@@ -37,7 +37,7 @@ void setup(){
     
     pinMode(EN_G, OUTPUT);// moteur gauche
     pinMode(IN_1_G, OUTPUT);//def gauche avant
-    pinMode(IN_1_G, OUTPUT);//def gauche arriere
+    pinMode(IN_2_G, OUTPUT);//def gauche arriere
 
     //activation moteur :
     digitalWrite(EN_D, HIGH);//envoi courant au moteur droit
@@ -54,8 +54,9 @@ void loop(){
     delay(500);
     digitalWrite(LEDU1, LOW);
     delay(500);
-    
-     //test tourner roue droite:
+
+
+    //test tourner roue droite:
     digitalWrite(IN_1_D, LOW);//active la roue DROITE en avant pdt 1sec
     digitalWrite(IN_2_D, HIGH);
     delay(1000);
@@ -73,7 +74,7 @@ void loop(){
     delay(2000);
 
 
-        //test tourner roue GAUCHE:
+    //test tourner roue GAUCHE:
     digitalWrite(IN_1_G, HIGH);//active la roue GAUCHE en avant pdt 1sec
     digitalWrite(IN_2_G, LOW);
     delay(1000);
@@ -89,4 +90,29 @@ void loop(){
     digitalWrite(IN_1_G,LOW);//ARRET 2 sec
     digitalWrite(IN_2_G,LOW);
     delay(2000);
+
+    //TEST AVANCER pdt 1sec
+    digitalWrite(IN_1_D, LOW);//active la roue DROITE en avant
+    digitalWrite(IN_2_D, HIGH);
+    digitalWrite(IN_1_G,HIGH);//active la roue GAUCHE en avant
+    digitalWrite(IN_2_G,LOW);
+    delay(1000);
+    //TEST ARRET PDT 2SEC
+    digitalWrite(IN_1_D, LOW);//ARRETE la roue DROITE
+    digitalWrite(IN_2_D, LOW);
+    digitalWrite(IN_1_G,LOW);//ARRETE la roue GAUCHE 
+    digitalWrite(IN_2_G,LOW);
+    delay(2000);
+    //TEST RECULER pdt 1sec
+    digitalWrite(IN_1_D, HIGH);
+    digitalWrite(IN_2_D, LOW);//ACTIVE la roue DROITE en arriere
+    digitalWrite(IN_1_G,LOW);
+    digitalWrite(IN_2_G,HIGH);//ACTIVE la roue GAUCHE en arriere
+    delay(1000);
+//TEST ARRET PDT 10SEC
+    digitalWrite(IN_1_D, LOW);
+    digitalWrite(IN_2_D, LOW);//ARRETE la roue DROITE 
+    digitalWrite(IN_1_G,LOW);
+    digitalWrite(IN_2_G,LOW);//ARRETE la roue GAUCHE 
+    delay(10000);
 }
