@@ -89,16 +89,11 @@ void setup() {
 
   //COnfig PMW
   const int freq = 1000; // Fréquence de PWM
-  const int resolution = 0; // Canal de PWM
+  const int resolution = 8; // Canal de PWM
   ledcSetup(0, freq, resolution); // Configurer le canal PWM pour le moteur droit
   ledcSetup(1, freq, resolution); // Configurer le canal PWM pour le moteur gauche
-  ledcAttachPin(EN_D, 0); // Attacher le canal PWM au moteur droit
-  ledcAttachPin(EN_G, 1); // Attacher le canal PWM au moteur gauche
-
-  digitalWrite(IN_1_D , LOW); // Moteur droit arriere
-  digitalWrite(IN_2_D , HIGH); // Moteur droit avant   
-  digitalWrite(IN_1_G , HIGH); // Moteur gauche avant
-  digitalWrite(IN_2_G , LOW); // Moteur gauche arriere  
+  ledcAttachPin(IN_2_D, 0); // Attacher le canal PWM au moteur droit
+  ledcAttachPin(IN_1_G, 1); // Attacher le canal PWM au moteur gauche
 
   digitalWrite(IN_1_D, LOW); // Moteur droit arriere
   ledcWrite(0, vitesseMoteur); // Moteur droit avant vitesse 150
