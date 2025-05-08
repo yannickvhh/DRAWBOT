@@ -6,28 +6,28 @@
 // Encodeur droit
 #define ENC_D_CH_A 27
 
-volatile int compteurG = 0; // Compteur pour la roue gauche
+volatile int compteurG = 0; // Compteur pour la roue gauche / volatile parceque les variables peuvent changer 
 volatile int compteurD = 0; // Compteur pour la roue droite
 
 // Interruption pour roue gauche
-void IRAM_ATTR interruptionGauche() {
-  compteurG++;
+void IRAM_ATTR interruptionGauche() {//iram_attr appele par le microcontroleur quand il detecte un top sur une des broces
+  compteurG++;// incrementer le compteur gauche
 }
 
 // Interruption pour roue droite
 void IRAM_ATTR interruptionDroite() {
-  compteurD++;
+  compteurD++;// incrementer le compteur droit
 }
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(115200);// Initialiser la communication série à 115200 bauds
 
   // Broches en entrée
-  pinMode(ENC_G_CH_A, INPUT);
-  pinMode(ENC_D_CH_A, INPUT);
+  pinMode(ENC_G_CH_A, INPUT);// Configurer la broche de l'encodeur gauche comme entrée
+  pinMode(ENC_D_CH_A, INPUT);// Configurer la broche de l'encodeur droit comme entrée
 
   // Attacher les interruptions aux deux encodeurs (front montant)
-  attachInterrupt(digitalPinToInterrupt(ENC_G_CH_A), interruptionGauche, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENC_G_CH_A), interruptionGauche, RISING);//des que tension monte a 1 sur lune des broche 32 ou 27 on appelle la fnc intterruptionGauche
   attachInterrupt(digitalPinToInterrupt(ENC_D_CH_A), interruptionDroite, RISING);
 
   Serial.println("Test encodeurs gauche et droit prêt !");
