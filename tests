@@ -1,0 +1,42 @@
+#include <Arduino.h>
+
+// Encodeur gauche
+#define ENC_G_CH_A 32
+
+// Encodeur droit
+#define ENC_D_CH_A 27
+
+volatile int compteurG = 0; // Compteur pour la roue gauche
+volatile int compteurD = 0; // Compteur pour la roue droite
+
+// Interruption pour roue gauche
+void IRAM_ATTR interruptionGauche() {
+  compteurG++;
+}
+
+// Interruption pour roue droite
+void IRAM_ATTR interruptionDroite() {
+  compteurD++;
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // Broches en entrée
+  pinMode(ENC_G_CH_A, INPUT);
+  pinMode(ENC_D_CH_A, INPUT);
+
+  // Attacher les interruptions aux deux encodeurs (front montant)
+  attachInterrupt(digitalPinToInterrupt(ENC_G_CH_A), interruptionGauche, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENC_D_CH_A), interruptionDroite, RISING);
+
+  Serial.println("Test encodeurs gauche et droit prêt !");
+}
+
+void loop() {
+  Serial.print("Gauche : ");
+  Serial.print(compteurG);
+  Serial.print(" | Droite : ");
+  Serial.println(compteurD);
+  delay(500); // Affiche toutes les 0.5 sec
+}
