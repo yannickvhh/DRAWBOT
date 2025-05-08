@@ -90,8 +90,7 @@ void setup() {
   digitalWrite(IN_1_G , HIGH); // Moteur gauche avant
   digitalWrite(IN_2_G , LOW); // Moteur gauche arriere  
   enMarche  = true; // Le robot est en marche
-  compteurD=0; // Initialiser le compteur droit à 0
-  compteurG=0; // Initialiser le compteur gauche à 0
+
 }
 
 void loop() {
