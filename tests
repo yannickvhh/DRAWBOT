@@ -1,22 +1,31 @@
 #include <Arduino.h>
 
-// Encodeur gauche
-#define ENC_G_CH_A 32
 
-// Encodeur droit
-#define ENC_D_CH_A 27
+#define ENC_G_CH_A 32// Encodeur gauche
+#define ENC_G_CH_B 33
+
+#define ENC_D_CH_A 27// Encodeur droit
+#define ENC_D_CH_B 14
 
 volatile int compteurG = 0; // Compteur pour la roue gauche / volatile parceque les variables peuvent changer 
 volatile int compteurD = 0; // Compteur pour la roue droite
 
 // Interruption pour roue gauche
-void IRAM_ATTR interruptionGauche() {//iram_attr appele par le microcontroleur quand il detecte un top sur une des broces
+void IRAM_ATTR interruptionGauche() {
+  if(digitalRead(ENC_G_CH_B)==HIGH){//iram_attr appele par le microcontroleur quand il detecte un top sur une des broces
   compteurG++;// incrementer le compteur gauche
+}else{
+  compteurG--;// decrementer le compteur gauche
+}
 }
 
 // Interruption pour roue droite
 void IRAM_ATTR interruptionDroite() {
+  if(digitalRead(ENC_D_CH_B)==HIGH){//iram_attr appele par le microcontroleur quand il detecte un top sur une des broces
   compteurD++;// incrementer le compteur droit
+}else{
+  compteurD--;// decrementer le compteur droit
+}
 }
 
 void setup() {
@@ -25,12 +34,14 @@ void setup() {
   // Broches en entrée
   pinMode(ENC_G_CH_A, INPUT);// Configurer la broche de l'encodeur gauche comme entrée
   pinMode(ENC_D_CH_A, INPUT);// Configurer la broche de l'encodeur droit comme entrée
+  pinMode(ENC_G_CH_B, INPUT);// Configurer la broche de l'encodeur gauche comme entrée
+  pinMode(ENC_D_CH_B, INPUT);// Configurer la broche de l'encodeur droit comme entrée
 
   // Attacher les interruptions aux deux encodeurs (front montant)
   attachInterrupt(digitalPinToInterrupt(ENC_G_CH_A), interruptionGauche, RISING);//des que tension monte a 1 sur lune des broche 32 ou 27 on appelle la fnc intterruptionGauche
   attachInterrupt(digitalPinToInterrupt(ENC_D_CH_A), interruptionDroite, RISING);
 
-  Serial.println("Test encodeurs gauche et droit prêt !");
+  Serial.println("Test encodeurs gauche et droit avec directionprêt !");
 }
 
 void loop() {
