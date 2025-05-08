@@ -10,18 +10,22 @@
 volatile int compteurG = 0; // Compteur pour la roue gauche / volatile parceque les variables peuvent changer 
 volatile int compteurD = 0; // Compteur pour la roue droite
 
+const float circonferenceRoue = 28.27; // en cm, pour roue de 9 cm de diamètre
+const int topsParTour = 1060; // nombre de tops par tour de roue (1060 pour encodeur quadrature)
+
+
 // Interruption pour roue gauche
 void IRAM_ATTR interruptionGauche() {
-  if(digitalRead(ENC_G_CH_B)==HIGH){//iram_attr appele par le microcontroleur quand il detecte un top sur une des broces
-  compteurG++;// incrementer le compteur gauche
-}else{
+  if(digitalRead(ENC_G_CH_B)==HIGH){//iram_attr appele par le microcontroleur quand il detecte un top sur une des broches
   compteurG--;// decrementer le compteur gauche
+}else{
+  compteurG++;// incrementer le compteur gauche
 }
 }
 
 // Interruption pour roue droite
 void IRAM_ATTR interruptionDroite() {
-  if(digitalRead(ENC_D_CH_B)==HIGH){//iram_attr appele par le microcontroleur quand il detecte un top sur une des broces
+  if(digitalRead(ENC_D_CH_B)==HIGH){//iram_attr appele par le microcontroleur quand il detecte un top sur une des broches
   compteurD++;// incrementer le compteur droit
 }else{
   compteurD--;// decrementer le compteur droit
@@ -45,9 +49,12 @@ void setup() {
 }
 
 void loop() {
-  Serial.print("Gauche : ");
-  Serial.print(compteurG);
-  Serial.print(" | Droite : ");
-  Serial.println(compteurD);
+  float distanceG = (compteurG* circonferenceRoue) /topsParTour; // Calculer la distance parcourue par la roue gauche
+  float distanceD = (compteurD * circonferenceRoue) / topsParTour; // Calculer la distance parcourue par la roue droite
+  Serial.print("distance Gauche : ");
+  Serial.print(distanceG); // Afficher la distance gauche
+  Serial.print("cm | distance Droite : ");
+  Serial.println(distanceD);//afficher la distance droite
+  Serial.println(" cm ");
   delay(500); // Affiche toutes les 0.5 sec
 }
