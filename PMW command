@@ -31,7 +31,7 @@ volatile int compteurD = 0; // Compteur pour la roue droite
 
 const float circonferenceRoue = 28.27; // en cm, pour roue de 9 cm de diamètre
 const int topsParTour = 1060; // nombre de tops par tour de roue (1060 pour encodeur quadrature)
-int objectfif = 20; // Objectif de distance à parcourir (en cm)
+int objectfif = 0; // Objectif de distance à parcourir (en cm)
 bool enMarche = false; // Etat du robot (en marche ou pas)
 
 int vitesseMoteur=150;//vitesse moteur(entre 0 et 255)
@@ -70,7 +70,7 @@ void setup() {
   pinMode(IN_1_G, OUTPUT);//def gauche avant
   pinMode(IN_2_G, OUTPUT);//def gauche arriere
 
-  //activation MOTEUR :
+  // MOTEUR :
   digitalWrite(EN_D, HIGH);//envoi courant au moteur droit
   digitalWrite(EN_G,HIGH);//envoi courant moteur gauche
 
@@ -85,7 +85,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(ENC_D_CH_A), interruptionDroite, RISING);
 
   //calcul nbr de tops pr 20cm
-  objectfif=(20.0/ circonferenceRoue)* topsParTour; // 20 cm de distance à parcourir
+  int objectfif=int((20.0/ circonferenceRoue)* topsParTour); // 20 cm de distance à parcourir
 
   //COnfig PMW
   const int freq = 1000; // Fréquence de PWM
