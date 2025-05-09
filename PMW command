@@ -25,102 +25,112 @@
 #define ADDR_IMU 0x6B
 #define ADDR_MAG 0x1E
 
-
-volatile int compteurG = 0; // Compteur pour la roue gauche / volatile parceque les variables peuvent changer 
-volatile int compteurD = 0; // Compteur pour la roue droite
+volatile int compteurG = 0;
+volatile int compteurD = 0;
 
 const float circonferenceRoue = 28.27; // en cm, pour roue de 9 cm de diamètre
-const int topsParTour = 1060; // nombre de tops par tour de roue (1060 pour encodeur quadrature)
-int objectfif = 0; // Objectif de distance à parcourir (en cm)
-bool enMarche = false; // Etat du robot (en marche ou pas)
+const int topsParTour = 1060; // nombre de tops par tour de roue
+int objectif = 0; // Objectif de distance à parcourir (en cm)
+bool enMarche = false;
 
-int vitesseMoteur=150;//vitesse moteur(entre 0 et 255)
+int vitesseMoteur = 150; // vitesse moteur (entre 0 et 255)
 
 // Interruption pour roue gauche
 void IRAM_ATTR interruptionGauche() {
-  if(digitalRead(ENC_G_CH_B)==HIGH){//iram_attr appele par le microcontroleur quand il detecte un top sur une des broches
-  compteurG--;// decrementer le compteur gauche
-}else{
-  compteurG++;// incrementer le compteur gauche
-}
+  if(digitalRead(ENC_G_CH_B)==HIGH) {
+    compteurG--;
+  } else {
+    compteurG++;
+  }
 }
 
 // Interruption pour roue droite
 void IRAM_ATTR interruptionDroite() {
-  if(digitalRead(ENC_D_CH_B)==HIGH){//iram_attr appele par le microcontroleur quand il detecte un top sur une des broches
-  compteurD++;// incrementer le compteur droit
-}else{
-  compteurD--;// decrementer le compteur droit
-}
+  if(digitalRead(ENC_D_CH_B)==HIGH) {
+    compteurD++;
+  } else {
+    compteurD--;
+  }
 }
 
+void avancer() {
+  // Moteur droit
+  digitalWrite(IN_1_D, LOW);
+  ledcWrite(0, vitesseMoteur); // IN_2_D avant
+  
+  // Moteur gauche
+  digitalWrite(IN_2_G, LOW);
+  ledcWrite(1, vitesseMoteur); // IN_1_G avant
+}
 
+void arreter() {
+  ledcWrite(0, 0); // Moteur droit stop
+  ledcWrite(1, 0); // Moteur gauche stop
+}
 
 void setup() {
-  Serial.begin(115200);// Initialiser la communication série à 115200 bauds
+  Serial.begin(115200);
 
-  //config broches
+  // Config broches
   pinMode(LEDU1, OUTPUT);
 
-  pinMode(EN_D, OUTPUT);//moteur droit
-  pinMode(IN_1_D, OUTPUT);//def droit arriere
-  pinMode(IN_2_D, OUTPUT);//def droit avant
+  pinMode(EN_D, OUTPUT);
+  pinMode(IN_1_D, OUTPUT);
+  pinMode(IN_2_D, OUTPUT);
     
-  pinMode(EN_G, OUTPUT);// moteur gauche
-  pinMode(IN_1_G, OUTPUT);//def gauche avant
-  pinMode(IN_2_G, OUTPUT);//def gauche arriere
+  pinMode(EN_G, OUTPUT);
+  pinMode(IN_1_G, OUTPUT);
+  pinMode(IN_2_G, OUTPUT);
 
-  // MOTEUR :
-  digitalWrite(EN_D, HIGH);//envoi courant au moteur droit
-  digitalWrite(EN_G,HIGH);//envoi courant moteur gauche
+  // Activer moteurs
+  digitalWrite(EN_D, HIGH);
+  digitalWrite(EN_G, HIGH);
 
-  // Broches en entrée
-  pinMode(ENC_G_CH_A, INPUT);// Configurer la broche de l'encodeur gauche comme entrée
-  pinMode(ENC_D_CH_A, INPUT);// Configurer la broche de l'encodeur droit comme entrée
-  pinMode(ENC_G_CH_B, INPUT);// Configurer la broche de l'encodeur gauche comme entrée
-  pinMode(ENC_D_CH_B, INPUT);// Configurer la broche de l'encodeur droit comme entrée
+  // Broches encodeurs
+  pinMode(ENC_G_CH_A, INPUT);
+  pinMode(ENC_D_CH_A, INPUT);
+  pinMode(ENC_G_CH_B, INPUT);
+  pinMode(ENC_D_CH_B, INPUT);
 
-  // Attacher les interruptions aux deux encodeurs (front montant)
-  attachInterrupt(digitalPinToInterrupt(ENC_G_CH_A), interruptionGauche, RISING);//des que tension monte a 1 sur lune des broche 32 ou 27 on appelle la fnc intterruptionGauche
+  // Attacher interruptions
+  attachInterrupt(digitalPinToInterrupt(ENC_G_CH_A), interruptionGauche, RISING);
   attachInterrupt(digitalPinToInterrupt(ENC_D_CH_A), interruptionDroite, RISING);
 
-  //calcul nbr de tops pr 20cm
-  int objectfif=int((20.0/ circonferenceRoue)* topsParTour); // 20 cm de distance à parcourir
+  // Calcul objectif (20cm)
+  objectif = int((20.0 / circonferenceRoue) * topsParTour);
 
-  //COnfig PMW
-  const int freq = 1000; // Fréquence de PWM
-  const int resolution = 8; // Canal de PWM
-  ledcSetup(0, freq, resolution); // Configurer le canal PWM pour le moteur droit
-  ledcSetup(1, freq, resolution); // Configurer le canal PWM pour le moteur gauche
-  ledcAttachPin(IN_2_D, 0); // Attacher le canal PWM au moteur droit
-  ledcAttachPin(IN_1_G, 1); // Attacher le canal PWM au moteur gauche
-
-  digitalWrite(IN_1_D, LOW); // Moteur droit arriere
-  ledcWrite(0, vitesseMoteur); // Moteur droit avant vitesse 150
-  digitalWrite(IN_2_G, LOW); // Moteur droit avant 
-  ledcWrite(1, vitesseMoteur); // Moteur gauche avant vitesse 150
-
-  enMarche  = true; // Le robot est en marche
+  // Config PWM
+  const int freq = 1000;
+  const int resolution = 8;
   
+  // Canal 0 et 1 pour moteur droit
+  ledcSetup(0, freq, resolution);
+  ledcAttachPin(IN_2_D, 0); // Avant droit
+  
+  // Canal 1 et 2 pour moteur gauche
+  ledcSetup(1, freq, resolution);
+  ledcAttachPin(IN_1_G, 1); // Avant gauche
+
+  // Démarrer les moteurs
+  avancer();
+  enMarche = true;
 }
 
 void loop() {
-  if(enMarche && abs(compteurG) >= objectfif && abs(compteurD) >= objectfif) { // Si le robot a parcouru la distance souhaitée
-    
-    digitalWrite(IN_2_D , LOW); // Moteur droit avant   
-    digitalWrite(IN_1_G , LOW); // Moteur gauche avant
-    ledcWrite(0, 0); // Moteur droit arret
-    ledcWrite(1, 0); // Moteur gauche arret 
-    
-    Serial.println("Objectif atteint ! Distance de 20cm atteinte !"); // Afficher un message sur le moniteur série
-    enMarche = false; // Le robot s'arrête
+  if(enMarche && abs(compteurG) >= objectif && abs(compteurD) >= objectif) {
+    arreter();
+    Serial.println("Objectif atteint ! Distance de 20cm atteinte !");
+    enMarche = false;
   }
-  float distanceG = (compteurG* circonferenceRoue) /topsParTour; // Calculer la distance parcourue par la roue gauche
-  float distanceD = (compteurD * circonferenceRoue) / topsParTour; // Calculer la distance parcourue par la roue droite
+  
+  float distanceG = (compteurG * circonferenceRoue) / topsParTour;
+  float distanceD = (compteurD * circonferenceRoue) / topsParTour;
+  
   Serial.print("distance Gauche : ");
-  Serial.print(distanceG); // Afficher la distance gauche
+  Serial.print(distanceG);
   Serial.print("cm | distance Droite : ");
-  Serial.println(distanceD);//afficher la distance droite
+  Serial.print(distanceD);
   Serial.println(" cm ");
-  delay(500); // Affiche toutes les 0.5 sec
+  
+  delay(500);
 }
