@@ -1,0 +1,41 @@
+#include <Arduino.h>
+#include <wire.h>
+#include <SparkFunLSM6DS3.h>
+
+LSM6DS3 IMU;//objet IMU
+// I2C
+#define SDA 21
+#define SCL 22
+
+void setup()
+{
+  Wire.begin(21, 22); // sda =21 et scl=22
+  Serial.begin(115200);
+  if(IMU.begin() !=0){
+    Serial.println("Erreur : impossible de communiquer avec IMU");
+  }
+  else{
+   Serial.println("IMU detecte");
+  }
+}
+
+void loop()
+{
+  //lecture 3axes acceleration
+  Serial.print("Acceleratio X:");
+  Serial.print(IMU.readFloatAccelX(), 2);
+  Serial.print(" | Y :");
+  Serial.print(IMU.readFloatAccelY(), 2);
+  Serial.print("");
+  Serial.print(IMU.readFloatAccelZ(), 2);
+  Serial.println(" | Z :");
+  
+  //lecture 3axes gyroscope
+  Serial.print("Rotation X : ");
+  Serial.print(IMU.readFloatGyroX(), 2);
+  Serial.print("Rotation Y : ");
+  Serial.print(IMU.readFloatGyroY(), 2);
+  Serial.print("Rotation Z : ");
+  Serial.println(IMU.readFloatGyroZ(), 2);
+  delay(5000);
+}
