@@ -35,9 +35,9 @@ int objectfif = 0; // Objectif de distance à parcourir (en cm)
 bool enMarche = false; // Etat du robot (en marche ou pas)
 float erreurprecedente = 0; // Erreur précédente pour le PID
 float integrale = 0; // Intégrale pour le PID
-float kp = 0.5; // Coefficient proportionnel pour le PID
-float ki = 0.1; // Coefficient intégral pour le PID
-float kd = 0.1; // Coefficient dérivé pour le PID
+float kp = 1.2; // Coefficient proportionnel pour le PID
+float ki = 0.0; // Coefficient intégral pour le PID
+float kd = 0.3; // Coefficient dérivé pour le PID
 
 int vitesseMoteur=50;//vitesse moteur(entre 0 et 255)
 int vitesseDroit = vitesseMoteur;
@@ -139,13 +139,13 @@ void loop() {
     return; // Sortir de la boucle
   }
 //synchroniser les roues avec PID
-  float erreur = compteurG - compteurD; // Calculer l'erreur entre les deux roues
+  int erreur = compteurD - compteurG; // Calculer l'erreur entre les deux roues
   integrale += erreur; // Calculer l'intégrale de l'erreur
   float derivee = erreur - erreurprecedente; // Calculer la dérivée de l'erreur
   erreurprecedente = erreur; // Mettre à jour l'erreur précédente
   float correction = (kp * erreur) + (ki * integrale) + (kd*derivee); // Calculer la correction PID
 
-  int pwmG = constrain(vitesseMoteur + correction, 0, 255); // Calculer la vitesse du moteur gauche
+  int pwmG = constrain(vitesseMoteur - correction, 0, 255); // Calculer la vitesse du moteur gauche
   int pwmD = constrain(vitesseMoteur, 0, 255); // Calculer la vitesse du moteur droit 
 
   ledcWrite(0, pwmD); // Appliquer la vitesse au moteur droit
