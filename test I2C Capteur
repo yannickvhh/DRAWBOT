@@ -1,0 +1,43 @@
+#include <Arduino.h>
+#include <wire.h>
+
+// I2C
+#define SDA 21
+#define SCL 22
+
+void setup()
+{
+  Wire.begin(21, 22); // sda =21 et scl=22
+  Serial.begin(115200);
+  Serial.println("scan I2c en cours: ");
+}
+
+void loop()
+{
+  byte error, address; // 2variables type byte : address de 1 à 127(test ttes less adresses sur l'I2C / error stock  : 0: périph présent, 1-4 erreur
+  int nDevices = 0;
+  for (address = 1; address < 127; address++)
+  {
+    Wire.beginTransmission(address);
+    error = Wire.endTransmission();
+
+    if (error == 0)
+    {
+      Serial.println("periph i2c trouvé: 0x");
+      if (address < 16) Serial.print("0");
+      Serial.print(address, HEX); // hex pr afficher en hexa(base16 au lieu de 10)
+      Serial.println();
+      nDevices++;
+    }
+  }
+
+  if (nDevices == 0)
+  {
+    Serial.println("aucun periph i2c detecte");
+  }
+  else
+  {
+    Serial.println("scan termine");
+  }
+  delay(5000);
+}
