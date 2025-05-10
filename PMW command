@@ -39,7 +39,7 @@ float kp = 1.2; // Coefficient proportionnel pour le PID
 float ki = 0.0; // Coefficient intégral pour le PID
 float kd = 0.3; // Coefficient dérivé pour le PID
 
-int vitesseMoteur=50;//vitesse moteur(entre 0 et 255)
+int vitesseMoteur=100;//vitesse moteur(entre 0 et 255)
 int vitesseDroit = vitesseMoteur;
 int vitesseGauche = vitesseMoteur; // Réduction de 5%
 
@@ -122,7 +122,7 @@ void setup() {
   digitalWrite(IN_1_D, LOW); // Moteur droit arriere
   ledcWrite(0, vitesseMoteur); // Moteur droit avant vitesse 150
   digitalWrite(IN_2_G, LOW); // Moteur droit avant 
-  ledcWrite(1, vitesseMoteur); // Moteur gauche avant vitesse 150
+  ledcWrite(1, 100); // Moteur gauche avant vitesse 150
 
   enMarche  = true; // Le robot est en marche
   
@@ -145,9 +145,17 @@ void loop() {
   erreurprecedente = erreur; // Mettre à jour l'erreur précédente
   float correction = (kp * erreur) + (ki * integrale) + (kd*derivee); // Calculer la correction PID
 
-  int pwmG = constrain(vitesseMoteur - correction, 0, 255); // Calculer la vitesse du moteur gauche
+  int pwmG = constrain(vitesseMoteur + correction, 0, 255); // Calculer la vitesse du moteur gauche
+  if (pwmG < 30) { // Si la vitesse trouvee est inférieure à 30
+    pwmG = 30; // Mettre la vitesse à 30
+  }
   int pwmD = constrain(vitesseMoteur, 0, 255); // Calculer la vitesse du moteur droit 
-
+  Serial.print("Correction: ");
+Serial.println(correction);
+Serial.print("Correction: ");
+Serial.print(correction);
+Serial.print(" | PWM gauche: ");
+Serial.println(pwmG);
   ledcWrite(0, pwmD); // Appliquer la vitesse au moteur droit
   ledcWrite(1, pwmG); // Appliquer la vitesse au moteur gauche
 
