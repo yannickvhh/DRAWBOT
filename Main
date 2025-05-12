@@ -1,0 +1,205 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <Sparkfun.h>  
+
+// User led
+#define LEDU1 25
+#define LEDU2 26
+// Enable moteurs droit et gauche
+#define EN_D 23
+#define EN_G 4
+// Commande PWM moteur droit
+#define IN_1_D 19 //arriere
+#define IN_2_D 18 //avant
+// Commande PWM moteur gauche
+#define IN_1_G 17 //avant
+#define IN_2_G 16 //arriere
+// Encodeur gauche
+#define ENC_G_CH_A 32
+#define ENC_G_CH_B 33
+// Encodeur droit
+#define ENC_D_CH_A 27
+#define ENC_D_CH_B 14
+// I2C
+#define SDA 21
+#define SCL 22
+// Adresse I2C
+#define ADDR_IMU 0x6B
+#define ADDR_MAG 0x1E
+
+LSM6DS3 IMU(I2C_MODE,ADDR_IMU);
+float angleZ=0.0 ; // Angle mesuré par l'IMU
+unsigned long tempsPrecedent = 0; // Temps précédent pour le calcul de la vitesse
+
+// Créer une instance de l'IMU
+volatile int compteurG = 0; // Compteur pour la roue gauche / volatile parceque les variables peuvent changer 
+volatile int compteurD = 0; // Compteur pour la roue droite
+
+const float circonferenceRoue = 28.27; // en cm, pour roue de 9 cm de diamètre
+const int topsParTour = 1050; // nombre de tops par tour de roue (1050 pour encodeur quadrature)
+int objectfif = 0; // Objectif de distance à parcourir (en cm)
+bool enMarche = false; // Etat du robot (en marche ou pas)
+float erreurprecedente = 0; // Erreur précédente pour le PID
+float integrale = 0; // Intégrale pour le PID
+float kp = 0.45; // Coefficient proportionnel pour le PID
+float ki = 0.0; // Coefficient intégral pour le PID
+float kd = 0.1; // Coefficient dérivé pour le PID
+
+int vitesseMoteur=120;//vitesse moteur(entre 0 et 255)
+int vitesseDroit = vitesseMoteur;
+int vitesseGauche = vitesseMoteur; // Réduction de 5%
+
+// Interruption pour roue gauche
+void IRAM_ATTR interruptionGauche() {
+  if(digitalRead(ENC_G_CH_A)==HIGH){//iram_attr appele par le microcontroleur quand il detecte un top sur une des broches
+  compteurG++;// decrementer le compteur gauche
+}else{
+  compteurG--;// incrementer le compteur gauche
+}
+}
+
+void avancer(){
+  digitalWrite(IN_1_D,LOW);
+  ledcWrite(0, vitesseDroit); // Moteur droit avant vitesse 150
+  digitalWrite(IN_2_G, LOW); // Moteur droit avant
+  ledcWrite(1, vitesseGauche ); // Moteur gauche avant vitesse 150
+}
+void arret(){
+  //MOTEUR DROIT
+  digitalWrite(IN_1_D, LOW);
+  digitalWrite(IN_2_D, LOW);
+  ledcWrite(0, 0); // Moteur droit arret
+  //MOTEUR GAUCHE
+  digitalWrite(IN_1_G, LOW);
+  digitalWrite(IN_2_G, LOW);
+  ledcWrite(1, 0); // Moteur gauche arret 
+}
+// Interruption pour roue droite
+void IRAM_ATTR interruptionDroite() {
+  if(digitalRead(ENC_D_CH_B)==HIGH){//iram_attr appele par le microcontroleur quand il detecte un top sur une des broches
+  compteurD++;// incrementer le compteur droit
+}else{
+  compteurD--;// decrementer le compteur droit
+}
+}
+
+void setup() {
+  Serial.begin(115200);// Initialiser la communication série à 115200 bauds
+  Wire.begin(SDA, SCL); // Initialiser la communication I2C
+  if (imu.begin() !=0 ) { // Initialiser l'IMU
+    Serial.println("Erreur de communication avec l'IMU");
+    while (true); // Boucle infinie si l'IMU ne répond pas
+  }else{
+    Serial.println("IMU initialisé avec succès");
+  }
+  tempsPrecedent = millis(); // Initialiser le temps précédent
+
+
+  //config broches
+  pinMode(LEDU1, OUTPUT);//LED
+
+//MOTEUR DROIT
+  pinMode(EN_D, OUTPUT);
+  pinMode(IN_1_D, OUTPUT);//def droit arriere
+  pinMode(IN_2_D, OUTPUT);//def droit avant
+    
+  //MOTEUR GAUCHE
+  pinMode(EN_G, OUTPUT);
+  pinMode(IN_1_G, OUTPUT);//def gauche avant
+  pinMode(IN_2_G, OUTPUT);//def gauche arriere
+
+  // MOTEUR :
+  digitalWrite(EN_D, HIGH);//envoi courant au moteur droit
+  digitalWrite(EN_G,HIGH);//envoi courant moteur gauche
+
+  // ENCODEURS 
+  pinMode(ENC_G_CH_A, INPUT);// Configurer la broche de l'encodeur GAUCHE comme entrée
+  pinMode(ENC_D_CH_A, INPUT);// Configurer la broche de l'encodeur DROIT comme entrée
+  pinMode(ENC_G_CH_B, INPUT);// Configurer la broche de l'encodeur GAUCHE comme entrée
+  pinMode(ENC_D_CH_B, INPUT);// Configurer la broche de l'encodeur DROIT comme entrée
+
+  // Attacher les interruptions aux deux encodeurs (front montant)
+  attachInterrupt(digitalPinToInterrupt(ENC_G_CH_A), interruptionGauche, RISING);//des que tension monte a 1 sur lune des broche 32 ou 27 on appelle la fnc intterruptionGauche
+  attachInterrupt(digitalPinToInterrupt(ENC_D_CH_A), interruptionDroite, RISING);
+
+  //calcul nbr de tops pr 20cm
+  objectfif=int((20.0/ circonferenceRoue)* topsParTour); // 20 cm de distance à parcourir
+
+  //CONFIGURATION PMW
+  const int freq = 1000; // Fréquence de PWM
+  const int resolution = 8; // Canal de PWM
+
+  ledcSetup(0, freq, resolution); // Configurer le canal PWM pour le moteur droit
+  ledcSetup(1, freq, resolution); // Configurer le canal PWM pour le moteur gauche
+  ledcAttachPin(IN_2_D, 0); // Attacher le canal PWM au moteur droit
+  ledcAttachPin(IN_1_G, 1); // Attacher le canal PWM au moteur gauche
+
+  digitalWrite(IN_1_D, LOW); // Moteur droit arriere
+  ledcWrite(0, vitesseMoteur); // Moteur droit avant vitesse 150
+  digitalWrite(IN_2_G, LOW); // Moteur droit avant 
+  ledcWrite(1, 100); // Moteur gauche avant vitesse 150
+
+  enMarche  = true; // Le robot est en marche
+  
+  
+}
+
+void loop() {
+ /* if(enMarche && abs(compteurG) >= objectfif && abs(compteurD) >= objectfif) { // Si le robot a parcouru la distance souhaitée
+    arret(); // Arrêter le robot
+    Serial.println("Objectif atteint ! Distance de 20cm atteinte !"); // Afficher un message sur le moniteur série
+    enMarche = false; // Le robot s'arrête
+    return; // Sortir de la boucle
+  }*/
+ //temps écoulé
+  unsigned long tempsActuel = millis(); // Obtenir le temps actuel
+  float deltaTemps = (tempsActuel - tempsPrecedent) / 1000.0; // Calculer le temps écoulé en secondes
+  tempsPrecedent = tempsActuel; // Mettre à jour le temps précédent
+//lecture gyroZ
+float vitesseAngulaireZ = IMU.readGyroZ(); // Lire la vitesse angulaire autour de l'axe Z
+//integration pour obtenir l'angle
+angleZ += vitesseAngulaireZ * deltaTemps; // Intégrer la vitesse angulaire pour obtenir l'angle
+//afficher angleZ
+  Serial.print("Angle Z: ");
+  Serial.print(angleZ); // Afficher l'angle Z
+  Serial.print(" | Vitesse angulaire Z: ");
+  Serial.println(vitesseAngulaireZ); // Afficher la vitesse angulaire Z
+
+  // Calculer la vitesse des roues
+  float vitesseG = (compteurG * circonferenceRoue) / topsParTour; // Calculer la vitesse de la roue gauche
+  float vitesseD = (compteurD * circonferenceRoue) / topsParTour; // Calculer la vitesse de la roue droite
+  Serial.print("Vitesse Gauche : ");
+  Serial.print(vitesseG); // Afficher la vitesse gauche
+  Serial.print("cm/s | Vitesse Droite : ");
+  Serial.println(vitesseD);//afficher la vitesse droite
+  Serial.println(" cm/s ");
+  /*
+//synchroniser les roues avec PID
+  int erreur = compteurD - compteurG; // Calculer l'erreur entre les deux roues
+  integrale += erreur; // Calculer l'intégrale de l'erreur
+  float derivee = erreur - erreurprecedente; // Calculer la dérivée de l'erreur
+  erreurprecedente = erreur; // Mettre à jour l'erreur précédente
+  float correction = (kp * erreur) + (ki * integrale) + (kd*derivee); // Calculer la correction PID
+  correction = constrain(correction, -30, 30); // Limiter la correction entre -50 et 50
+
+  int pwmG = constrain(vitesseMoteur + correction, 30, 255); // Calculer la vitesse du moteur gauche avec vitessemini 30
+  int pwmD = constrain(vitesseMoteur - correction, 30,255); // Calculer la vitesse du moteur droit 
+  Serial.print("Correction: ");
+  Serial.println(correction);
+  Serial.print("Correction: ");
+  Serial.print(correction);
+  Serial.print(" | PWM gauche: ");
+  Serial.println(pwmG);
+  ledcWrite(0, pwmD); // Appliquer la vitesse au moteur droit
+  ledcWrite(1, pwmG); // Appliquer la vitesse au moteur gauche
+
+  float distanceG = (compteurG* circonferenceRoue) /topsParTour; // Calculer la distance parcourue par la roue gauche
+  float distanceD = (compteurD * circonferenceRoue) / topsParTour; // Calculer la distance parcourue par la ro  ue droite
+  Serial.print("distance Gauche : ");
+  Serial.print(distanceG); // Afficher la distance gauche
+  Serial.print("cm | distance Droite : ");
+  Serial.println(distanceD);//afficher la distance droite
+  Serial.println(" cm ");
+  delay(500); // Affiche toutes les 0.5 sec
+  */
+}
