@@ -1,5 +1,5 @@
 #include <Arduino.h>
- 
+
 // User led
 #define LEDU1 25
 #define LEDU2 26
@@ -142,10 +142,10 @@ void loop() {
   float derivee = erreur - erreurprecedente; // Calculer la dérivée de l'erreur
   erreurprecedente = erreur; // Mettre à jour l'erreur précédente
   float correction = (kp * erreur) + (ki * integrale) + (kd*derivee); // Calculer la correction PID
-  correction = constrain(correction, -50, 50); // Limiter la correction entre -50 et 50
+  correction = constrain(correction, -40, 40); // Limiter la correction entre -50 et 50
 
   int pwmG = constrain(vitesseMoteur + correction, 30, 255); // Calculer la vitesse du moteur gauche avec vitessemini 30
-  int pwmD = (vitesseMoteur - correction, 30,255); // Calculer la vitesse du moteur droit 
+  int pwmD = constrain(vitesseMoteur - correction, 30,255); // Calculer la vitesse du moteur droit 
   Serial.print("Correction: ");
   Serial.println(correction);
   Serial.print("Correction: ");
