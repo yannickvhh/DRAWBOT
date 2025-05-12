@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <Wire.h>
-#include <Sparkfun.h>  
+#include <SparkFunLSM6DS3.h> // Bibliothèque pour l'IMU LSM6DS3
 
 // User led
 #define LEDU1 25
@@ -86,7 +86,7 @@ void IRAM_ATTR interruptionDroite() {
 void setup() {
   Serial.begin(115200);// Initialiser la communication série à 115200 bauds
   Wire.begin(SDA, SCL); // Initialiser la communication I2C
-  if (imu.begin() !=0 ) { // Initialiser l'IMU
+  if (IMU.begin() !=0 ) { // Initialiser l'IMU
     Serial.println("Erreur de communication avec l'IMU");
     while (true); // Boucle infinie si l'IMU ne répond pas
   }else{
@@ -156,7 +156,7 @@ void loop() {
   float deltaTemps = (tempsActuel - tempsPrecedent) / 1000.0; // Calculer le temps écoulé en secondes
   tempsPrecedent = tempsActuel; // Mettre à jour le temps précédent
 //lecture gyroZ
-float vitesseAngulaireZ = IMU.readGyroZ(); // Lire la vitesse angulaire autour de l'axe Z
+float vitesseAngulaireZ = IMU.readFloatGyroZ(); // Lire la vitesse angulaire autour de l'axe Z
 //integration pour obtenir l'angle
 angleZ += vitesseAngulaireZ * deltaTemps; // Intégrer la vitesse angulaire pour obtenir l'angle
 //afficher angleZ
