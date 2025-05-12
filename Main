@@ -30,6 +30,7 @@
 LSM6DS3 IMU(I2C_MODE,ADDR_IMU);
 float angleZ=0.0 ; // Angle mesuré par l'IMU
 unsigned long tempsPrecedent = 0; // Temps précédent pour le calcul de la vitesse
+float kpGyro = 0.1; // Coefficient de gain pour le gyroscope
 
 // Créer une instance de l'IMU
 volatile int compteurG = 0; // Compteur pour la roue gauche / volatile parceque les variables peuvent changer 
@@ -41,9 +42,9 @@ int objectfif = 0; // Objectif de distance à parcourir (en cm)
 bool enMarche = false; // Etat du robot (en marche ou pas)
 float erreurprecedente = 0; // Erreur précédente pour le PID
 float integrale = 0; // Intégrale pour le PID
-float kp = 0.45; // Coefficient proportionnel pour le PID
+float kp = 1.2; // Coefficient proportionnel pour le PID
 float ki = 0.0; // Coefficient intégral pour le PID
-float kd = 0.1; // Coefficient dérivé pour le PID
+float kd = 0.3; // Coefficient dérivé pour le PID
 
 int vitesseMoteur=120;//vitesse moteur(entre 0 et 255)
 int vitesseDroit = vitesseMoteur;
@@ -151,55 +152,57 @@ void loop() {
     enMarche = false; // Le robot s'arrête
     return; // Sortir de la boucle
   }*/
+
  //temps écoulé
   unsigned long tempsActuel = millis(); // Obtenir le temps actuel
   float deltaTemps = (tempsActuel - tempsPrecedent) / 1000.0; // Calculer le temps écoulé en secondes
   tempsPrecedent = tempsActuel; // Mettre à jour le temps précédent
+
 //lecture gyroZ
 float vitesseAngulaireZ = IMU.readFloatGyroZ(); // Lire la vitesse angulaire autour de l'axe Z
 //integration pour obtenir l'angle
 angleZ += vitesseAngulaireZ * deltaTemps; // Intégrer la vitesse angulaire pour obtenir l'angle
-//afficher angleZ
-  Serial.print("Angle Z: ");
-  Serial.print(angleZ); // Afficher l'angle Z
-  Serial.print(" | Vitesse angulaire Z: ");
-  Serial.println(vitesseAngulaireZ); // Afficher la vitesse angulaire Z
 
-  // Calculer la vitesse des roues
-  float vitesseG = (compteurG * circonferenceRoue) / topsParTour; // Calculer la vitesse de la roue gauche
-  float vitesseD = (compteurD * circonferenceRoue) / topsParTour; // Calculer la vitesse de la roue droite
-  Serial.print("Vitesse Gauche : ");
-  Serial.print(vitesseG); // Afficher la vitesse gauche
-  Serial.print("cm/s | Vitesse Droite : ");
-  Serial.println(vitesseD);//afficher la vitesse droite
-  Serial.println(" cm/s ");
-  /*
-//synchroniser les roues avec PID
+//correction orientation
+float correctionGyro = -vitesseAngulaireZ * kpGyro; // Calculer la correction de l'angle Z*
+
+//correction pid encodeur
   int erreur = compteurD - compteurG; // Calculer l'erreur entre les deux roues
   integrale += erreur; // Calculer l'intégrale de l'erreur
   float derivee = erreur - erreurprecedente; // Calculer la dérivée de l'erreur
   erreurprecedente = erreur; // Mettre à jour l'erreur précédente
-  float correction = (kp * erreur) + (ki * integrale) + (kd*derivee); // Calculer la correction PID
-  correction = constrain(correction, -30, 30); // Limiter la correction entre -50 et 50
+  float correctionPID = (kp * erreur) + (ki * integrale) + (kd*derivee); // Calculer la correction PID
+  correctionPID = constrain(correctionPID, -30, 30); // Limiter la correction entre -50 et 50
 
-  int pwmG = constrain(vitesseMoteur + correction, 30, 255); // Calculer la vitesse du moteur gauche avec vitessemini 30
-  int pwmD = constrain(vitesseMoteur - correction, 30,255); // Calculer la vitesse du moteur droit 
-  Serial.print("Correction: ");
-  Serial.println(correction);
-  Serial.print("Correction: ");
-  Serial.print(correction);
-  Serial.print(" | PWM gauche: ");
-  Serial.println(pwmG);
+//correction totale
+float correctionTotale = correctionPID + correctionGyro; // Calculer la correction totale
+
+ int pwmG = constrain(vitesseMoteur + correctionTotale, 30, 255); // Calculer la vitesse du moteur gauche avec vitessemini 30
+  int pwmD = constrain(vitesseMoteur - correctionTotale, 30,255); // Calculer la vitesse du moteur droit 
   ledcWrite(0, pwmD); // Appliquer la vitesse au moteur droit
   ledcWrite(1, pwmG); // Appliquer la vitesse au moteur gauche
+
+//afficher angleZ
+  Serial.print("Angle Z: ");
+  Serial.print(angleZ,2); // Afficher l'angle Z
+  Serial.print(" | Vitesse angulaire Z: ");
+  Serial.println(vitesseAngulaireZ, 2); // Afficher la vitesse angulaire Z
+
+  Serial.print("CorrectionTotale: ");
+  Serial.println(correctionTotale);
+  Serial.print("pwm Droit: ");
+  Serial.print(pwmD);
+  Serial.print(" | PWM gauche: ");
+  Serial.println(pwmG);
+
 
   float distanceG = (compteurG* circonferenceRoue) /topsParTour; // Calculer la distance parcourue par la roue gauche
   float distanceD = (compteurD * circonferenceRoue) / topsParTour; // Calculer la distance parcourue par la ro  ue droite
   Serial.print("distance Gauche : ");
-  Serial.print(distanceG); // Afficher la distance gauche
+  Serial.print(distanceG, 2); // Afficher la distance gauche
   Serial.print("cm | distance Droite : ");
-  Serial.println(distanceD);//afficher la distance droite
+  Serial.println(distanceD, 2);//afficher la distance droite
   Serial.println(" cm ");
   delay(500); // Affiche toutes les 0.5 sec
-  */
+
 }
