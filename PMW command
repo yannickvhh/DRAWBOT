@@ -35,11 +35,11 @@ int objectfif = 0; // Objectif de distance à parcourir (en cm)
 bool enMarche = false; // Etat du robot (en marche ou pas)
 float erreurprecedente = 0; // Erreur précédente pour le PID
 float integrale = 0; // Intégrale pour le PID
-float kp = 1.2; // Coefficient proportionnel pour le PID
+float kp = 0.5; // Coefficient proportionnel pour le PID
 float ki = 0.0; // Coefficient intégral pour le PID
-float kd = 0.3; // Coefficient dérivé pour le PID
+float kd = 0.1; // Coefficient dérivé pour le PID
 
-int vitesseMoteur=100;//vitesse moteur(entre 0 et 255)
+int vitesseMoteur=120;//vitesse moteur(entre 0 et 255)
 int vitesseDroit = vitesseMoteur;
 int vitesseGauche = vitesseMoteur; // Réduction de 5%
 
@@ -64,8 +64,8 @@ void arret(){
   digitalWrite(IN_2_D, LOW);
   ledcWrite(0, 0); // Moteur droit arret
   //MOTEUR GAUCHE
-  digitalWrite(IN_1_D, LOW);
-  digitalWrite(IN_2_D, LOW);
+  digitalWrite(IN_1_G, LOW);
+  digitalWrite(IN_2_G, LOW);
   ledcWrite(1, 0); // Moteur gauche arret 
 }
 // Interruption pour roue droite
@@ -130,37 +130,33 @@ void setup() {
 }
 
 void loop() {
-  if(enMarche && abs(compteurG) >= objectfif && abs(compteurD) >= objectfif) { // Si le robot a parcouru la distance souhaitée
+ /* if(enMarche && abs(compteurG) >= objectfif && abs(compteurD) >= objectfif) { // Si le robot a parcouru la distance souhaitée
     arret(); // Arrêter le robot
-    compteurD = 0; // Réinitialiser le compteur de la roue droite
-    compteurG = 0; // Réinitialiser le compteur de la roue gauche
     Serial.println("Objectif atteint ! Distance de 20cm atteinte !"); // Afficher un message sur le moniteur série
     enMarche = false; // Le robot s'arrête
     return; // Sortir de la boucle
-  }
+  }*/
 //synchroniser les roues avec PID
   int erreur = compteurD - compteurG; // Calculer l'erreur entre les deux roues
   integrale += erreur; // Calculer l'intégrale de l'erreur
   float derivee = erreur - erreurprecedente; // Calculer la dérivée de l'erreur
   erreurprecedente = erreur; // Mettre à jour l'erreur précédente
   float correction = (kp * erreur) + (ki * integrale) + (kd*derivee); // Calculer la correction PID
+  correction = constrain(correction, -50, 50); // Limiter la correction entre -50 et 50
 
-  int pwmG = constrain(vitesseMoteur + correction, 0, 255); // Calculer la vitesse du moteur gauche
-  if (pwmG < 30) { // Si la vitesse trouvee est inférieure à 30
-    pwmG = 30; // Mettre la vitesse à 30
-  }
-  int pwmD = constrain(vitesseMoteur, 0, 255); // Calculer la vitesse du moteur droit 
+  int pwmG = constrain(vitesseMoteur + correction, 30, 255); // Calculer la vitesse du moteur gauche avec vitessemini 30
+  int pwmD = vitesseMoteur; // Calculer la vitesse du moteur droit 
   Serial.print("Correction: ");
-Serial.println(correction);
-Serial.print("Correction: ");
-Serial.print(correction);
-Serial.print(" | PWM gauche: ");
-Serial.println(pwmG);
+  Serial.println(correction);
+  Serial.print("Correction: ");
+  Serial.print(correction);
+  Serial.print(" | PWM gauche: ");
+  Serial.println(pwmG);
   ledcWrite(0, pwmD); // Appliquer la vitesse au moteur droit
   ledcWrite(1, pwmG); // Appliquer la vitesse au moteur gauche
 
   float distanceG = (compteurG* circonferenceRoue) /topsParTour; // Calculer la distance parcourue par la roue gauche
-  float distanceD = (compteurD * circonferenceRoue) / topsParTour; // Calculer la distance parcourue par la roue droite
+  float distanceD = (compteurD * circonferenceRoue) / topsParTour; // Calculer la distance parcourue par la ro  ue droite
   Serial.print("distance Gauche : ");
   Serial.print(distanceG); // Afficher la distance gauche
   Serial.print("cm | distance Droite : ");
