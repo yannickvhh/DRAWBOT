@@ -35,9 +35,10 @@ int objectfif = 0; // Objectif de distance à parcourir (en cm)
 bool enMarche = false; // Etat du robot (en marche ou pas)
 float erreurprecedente = 0; // Erreur précédente pour le PID
 float integrale = 0; // Intégrale pour le PID
-float kp = 0.5; // Coefficient proportionnel pour le PID
+float kp = 0.6; // Coefficient proportionnel pour le PID
 float ki = 0.0; // Coefficient intégral pour le PID
-float kd = 0.1; // Coefficient dérivé pour le PID
+float kd = 0.15; // Coefficient dérivé pour le PID
+int decalageDroit = 5; // Décalage pour le moteur droit
 
 int vitesseMoteur=120;//vitesse moteur(entre 0 et 255)
 int vitesseDroit = vitesseMoteur;
@@ -142,10 +143,10 @@ void loop() {
   float derivee = erreur - erreurprecedente; // Calculer la dérivée de l'erreur
   erreurprecedente = erreur; // Mettre à jour l'erreur précédente
   float correction = (kp * erreur) + (ki * integrale) + (kd*derivee); // Calculer la correction PID
-  correction = constrain(correction, -50, 50); // Limiter la correction entre -50 et 50
+  correction = constrain(correction, -80, 80); // Limiter la correction entre -50 et 50
 
   int pwmG = constrain(vitesseMoteur + correction, 30, 255); // Calculer la vitesse du moteur gauche avec vitessemini 30
-  int pwmD = vitesseMoteur; // Calculer la vitesse du moteur droit 
+  int pwmD = (vitesseMoteur-decalageDroit, 0,255); // Calculer la vitesse du moteur droit 
   Serial.print("Correction: ");
   Serial.println(correction);
   Serial.print("Correction: ");
