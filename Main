@@ -30,7 +30,15 @@
 LSM6DS3 IMU(I2C_MODE,ADDR_IMU);
 float angleZ=0.0 ; // Angle mesuré par l'IMU
 unsigned long tempsPrecedent = 0; // Temps précédent pour le calcul de la vitesse
-float kpGyro = 0.1; // Coefficient de gain pour le gyroscope
+float kpGyro = 0.3; // Coefficient de gain pour le gyroscope
+
+float offSetGyroZ=0.0; // Offset du gyroscope sur l'axe Z
+bool IMUcalibre = false; // Indicateur pour savoir si l'IMU est calibré
+const int dureeCalibrage = 2000; // Durée de calibration 2s
+unsigned long DebutCalibrage = 0; // Temps de début de calibration
+float gyroZFiltre = 0.0; // Valeur filtrée du gyroscope sur l'axe Z
+const float alpha = 0.1; // Coefficient de filtrage pour le gyroscope
+
 
 // Créer une instance de l'IMU
 volatile int compteurG = 0; // Compteur pour la roue gauche / volatile parceque les variables peuvent changer 
@@ -86,6 +94,23 @@ void IRAM_ATTR interruptionDroite() {
 
 void setup() {
   Serial.begin(115200);// Initialiser la communication série à 115200 bauds
+  DebutCalibrage = millis(); // Initialiser le temps de début de calibration
+  offSetGyroZ=0;
+  int nbechantillons = 0; // Initialiser le nombre d'échantillons à 0
+
+//moyenne gyro sur 2s
+  while (millis() - DebutCalibrage < dureeCalibrage) { // Boucle de calibration pendant 2 secondes
+    offSetGyroZ += IMU.readFloatGyroZ(); // Ajouter la valeur à l'offset
+    nbechantillons++; //menter le nombre d'échantillons
+    delay(5); // Attendre 5 ms
+  }
+  offSetGyroZ/= nbechantillons; // Calculer la moyenne
+  IMUcalibre  = true; // Indiquer que l'IMU est calibré
+
+  Serial.print("Offset Gyro z detecte : ");
+  Serial.println(offSetGyroZ, 3); // Afficher l'offset sur le moniteur série
+
+  
   Wire.begin(SDA, SCL); // Initialiser la communication I2C
   if (IMU.begin() !=0 ) { // Initialiser l'IMU
     Serial.println("Erreur de communication avec l'IMU");
@@ -159,7 +184,11 @@ void loop() {
   tempsPrecedent = tempsActuel; // Mettre à jour le temps précédent
 
 //lecture gyroZ
-float vitesseAngulaireZ = IMU.readFloatGyroZ(); // Lire la vitesse angulaire autour de l'axe Z
+if(!IMUcalibre) return;
+float mesureGyroZ = IMU.readFloatGyroZ(); // Lire la valeur du gyroscope sur l'axe Z
+  gyroZFiltre = alpha * mesureGyroZ + (1 - alpha) * gyroZFiltre; // Filtrer la valeur du gyroscope
+  float vitesseAngulaireZ = gyroZFiltre; // Calculer la vitesse angulaire Z
+
 //integration pour obtenir l'angle
 angleZ += vitesseAngulaireZ * deltaTemps; // Intégrer la vitesse angulaire pour obtenir l'angle
 
