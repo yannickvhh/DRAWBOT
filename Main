@@ -30,7 +30,7 @@
 LSM6DS3 IMU(I2C_MODE,ADDR_IMU);
 float angleZ=0.0 ; // Angle mesuré par l'IMU
 unsigned long tempsPrecedent = 0; // Temps précédent pour le calcul de la vitesse
-float kpGyro = 0.3; // Coefficient de gain pour le gyroscope
+float kpGyro = 0.01; // Coefficient de gain pour le gyroscope
 
 float offSetGyroZ=0.0; // Offset du gyroscope sur l'axe Z
 bool IMUcalibre = false; // Indicateur pour savoir si l'IMU est calibré
@@ -187,8 +187,11 @@ void loop() {
 if(!IMUcalibre) return;
 float mesureGyroZ = IMU.readFloatGyroZ(); // Lire la valeur du gyroscope sur l'axe Z
   gyroZFiltre = alpha * mesureGyroZ + (1 - alpha) * gyroZFiltre; // Filtrer la valeur du gyroscope
+  if(abs(gyroZFiltre) < 0.1){ // Si la vitesse angulaire est faible
+    gyroZFiltre = 0.0; // Mettre à zéro la valeur filtrée
+  }
+  
   float vitesseAngulaireZ = gyroZFiltre; // Calculer la vitesse angulaire Z
-
 //integration pour obtenir l'angle
 angleZ += vitesseAngulaireZ * deltaTemps; // Intégrer la vitesse angulaire pour obtenir l'angle
 
