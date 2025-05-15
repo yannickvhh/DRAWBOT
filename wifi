@@ -1,0 +1,82 @@
+// Projet Drawbot - Test Communication Wi-Fi en Mode Point d'Accès ( l'ESP32 crée son propre réseau Wi-Fi )
+// Ce code configure l'ESP32 pour qu'il crée son propre  Wi-Fi
+// et start un petit serveur web pour recup des commandes.
+
+#include <WiFi.h>
+#include <WebServer.h> // Bibliothèque pr serveur web 
+
+// Config point dacces Wi-Fi
+const char* ssid_ap = "DrawbotYannick_WIFI"; // Nom Wi-Fi
+const char* password_ap = NULL;     // Mdp  Wi-Fi (NULL car pas de mdp)
+
+// Création d'un objet WebServer qui écoutera sur le port 80 (HTTP)
+WebServer server(80);
+
+// Fonction pour gérer la page racine ("/")
+// Quand on accède à l'adresse IP de l'ESP32, cette fonction est appelée.
+void handleRoot() {
+  String html_page = "<html><body>";
+  html_page += "<h1>Serveur ESP32 pour le DrawbotY</h1>";
+  html_page += "<p>Le robot est prêt à recevoir des commandes.</p>";
+  html_page += "<p>Pour envoyer une commande, utilisez l' URL : <br>";
+  html_page += "<code>http://192.168.4.1/commande?msg=VOTRE_MESSAGE</code></p>";
+  html_page += "</body></html>";
+  server.send(200, "text/html", html_page); // Envoie la page HTML au navigateur
+}
+
+// Fonction pour gérer les commandes envoyées à "/commande"
+// exemple: http://192.168.4.1/commande?msg=avance
+void handleCommande() {
+  String message_recu = "";
+  String reponse_au_client = "";
+
+  // On vérifie si le param "msg" est présent dans l'URL
+  if (server.hasArg("msg")) {
+    message_recu = server.arg("msg"); // On récupère la valeur du param "msg"
+    Serial.print("Message recu via Wi-Fi: ");
+    Serial.println(message_recu);
+    reponse_au_client = "Commande '" + message_recu + "' recue par le robot.";
+  } else {
+    Serial.println("Commande recue, mais sans parametre 'msg'.");
+    reponse_au_client = "Erreur: Le parametre 'msg' est manquant dans la commande.";
+  }
+
+  server.send(200, "text/plain", reponse_au_client); // Envoi une réponse simple au navigateur
+}
+
+void setup() {
+  Serial.begin(115200); // Init communication série pr débogage
+  Serial.println("\nInitialisation du DrawbotY en mode Point d'Acces Wi-Fi...");
+
+  // Config du mode Point d'Accès 
+  // L'ESP32 va créer son propre réseau Wi-Fi
+  WiFi.softAP(ssid_ap, password_ap);
+
+  Serial.print("Point d'Acces Wi-Fi '" + String(ssid_ap) + "' demarre.");
+  if (password_ap != NULL) {
+    Serial.print(" Avec mot de passe: " + String(password_ap));
+  }
+  Serial.println("");
+
+  // Affiche l'adresse IP du PA
+  IPAddress ip_ap = WiFi.softAPIP();
+  Serial.print("Adresse IP du Point d'Acces: ");
+  Serial.println(ip_ap);
+
+  // Définition des "routes" du serveur web
+  // Quand un client web demande la page racine ("/"), on appelle la fonction handleRoot
+  server.on("/", HTTP_GET, handleRoot);
+  // Quand un client web envoie une requête à "/commande", on appelle la fonction handleCommande
+  server.on("/commande", HTTP_GET, handleCommande);
+
+  // Démarrage du serveur web
+  server.begin();
+  Serial.println("Serveur HTTP demarre. Pret a recevoir des connexions.");
+  Serial.println("Connectez-vous au reseau Wi-Fi '" + String(ssid_ap) + "' et ouvrez un navigateur a l'adresse http://" + ip_ap.toString());
+}
+
+void loop() {
+  // Le serveur web a besoin d'être vérifié régulièrement pour traiter les requêtes des clients
+  server.handleClient();
+}
+
