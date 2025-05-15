@@ -1,240 +1,356 @@
-#include <Arduino.h>
-#include <Wire.h>
-#include <SparkFunLSM6DS3.h> // Bibliothèque pour l'IMU LSM6DS3
+/***************************************************************************
+ * Drawbot.ino - Projet Robot Dessinateur (Style Etudiant)
+ * ECE Paris - Projet Systèmes Bouclés
+ ***************************************************************************/
 
-// User led
+#include <Arduino.h>
+#include <Wire.h>              // Pour I2C (IMU)
+#include <SparkFunLSM6DS3.h> // Pour l'IMU LSM6DS3
+
+// LEDs
 #define LEDU1 25
 #define LEDU2 26
-// Enable moteurs droit et gauche
-#define EN_D 23
-#define EN_G 4
-// Commande PWM moteur droit
-#define IN_1_D 19 //arriere
-#define IN_2_D 18 //avant
-// Commande PWM moteur gauche
-#define IN_1_G 17 //avant
-#define IN_2_G 16 //arriere
-// Encodeur gauche
+
+// Moteurs
+#define EN_D 23 // Enable Moteur Droit
+#define EN_G 4  // Enable Moteur Gauche
+#define IN_1_D 19 // Moteur Droit - Arrière
+#define IN_2_D 18 // Moteur Droit - Avant
+#define IN_1_G 17 // Moteur Gauche - Avant
+#define IN_2_G 16 // Moteur Gauche - Arrière
+
+// Encodeurs
 #define ENC_G_CH_A 32
 #define ENC_G_CH_B 33
-// Encodeur droit
 #define ENC_D_CH_A 27
 #define ENC_D_CH_B 14
+
 // I2C
-#define SDA 21
-#define SCL 22
-// Adresse I2C
-#define ADDR_IMU 0x6B
-#define ADDR_MAG 0x1E
+#define SDA_PIN 21 // Broche SDA pour I2C
+#define SCL_PIN 22 // Broche SCL pour I2C
 
-LSM6DS3 IMU(I2C_MODE,ADDR_IMU);
-float angleZ=0.0 ; // Angle mesuré par l'IMU
-unsigned long tempsPrecedent = 0; // Temps précédent pour le calcul de la vitesse
-float kpGyro = 0.01; // Coefficient de gain pour le gyroscope
+// Adresses I2C
+#define ADDR_IMU 0x6B // Adresse IMU LSM6DS3
+// #define ADDR_MAG 0x1E // Adresse Magnétomètre (pas utilisé pour l'instant)
 
-float offSetGyroZ=0.0; // Offset du gyroscope sur l'axe Z
-bool IMUcalibre = false; // Indicateur pour savoir si l'IMU est calibré
-const int dureeCalibrage = 2000; // Durée de calibration 2s
-unsigned long DebutCalibrage = 0; // Temps de début de calibration
-float gyroZFiltre = 0.0; // Valeur filtrée du gyroscope sur l'axe Z
-const float alpha = 0.1; // Coefficient de filtrage pour le gyroscope
+// PWM Moteurs
+const int FREQ_PWM = 1000;    // Fréquence PWM
+const int RESOLUTION_PWM = 8; // Résolution PWM (0-255)
+const int VITESSE_MAX = 255;
+// Canaux PWM (pour ESP32, on peut en choisir)
+const int CANAL_D_AVANT = 0;
+const int CANAL_D_ARRIERE = 1;
+const int CANAL_G_AVANT = 2;
+const int CANAL_G_ARRIERE = 3;
 
+// IMU et Gyroscope
+LSM6DS3 myIMU(I2C_MODE, ADDR_IMU); // Crée l'objet IMU
+float angleZ = 0.0;                // Angle Z du robot (calculé)
+float gyroZ_offset = 0.0;          // Offset du gyroscope Z après calibration
+bool imuOK = false;                // Pour savoir si l'IMU est bien initialisée
+unsigned long tempsGyro_prec = 0;  // Temps précédent pour calcul angle gyro
+float gyroZ_filtre_prec = 0.0;     // Valeur filtrée précédente du gyro Z
+const float ALPHA_GYRO = 0.1;      // Coeff pour filtre passe-bas du gyro
 
-// Créer une instance de l'IMU
-volatile int compteurG = 0; // Compteur pour la roue gauche / volatile parceque les variables peuvent changer 
-volatile int compteurD = 0; // Compteur pour la roue droite
+// Encodeurs
+volatile long compteurG = 0; // Compteur encodeur Gauche
+volatile long compteurD = 0; // Compteur encodeur Droit
 
-const float circonferenceRoue = 28.27; // en cm, pour roue de 9 cm de diamètre
-const int topsParTour = 1050; // nombre de tops par tour de roue (1050 pour encodeur quadrature)
-int objectfif = 0; // Objectif de distance à parcourir (en cm)
-bool enMarche = false; // Etat du robot (en marche ou pas)
-float erreurprecedente = 0; // Erreur précédente pour le PID
-float integrale = 0; // Intégrale pour le PID
-float kp = 1.2; // Coefficient proportionnel pour le PID
-float ki = 0.0; // Coefficient intégral pour le PID
-float kd = 0.3; // Coefficient dérivé pour le PID
+// Constantes pour le calcul de distance (à ajuster selon votre robot)
+const float DIAMETRE_ROUE_CM = 9.0; // Diamètre de la roue en cm
+const float CIRCONFERENCE_ROUE_CM = DIAMETRE_ROUE_CM * PI; // PI est une constante Arduino
+const int TICKS_PAR_TOUR_ENCODEUR = 1050; // Nombre de ticks pour un tour complet de l'encodeur
+                                        // (A vérifier pour vos encodeurs N20, souvent c'est par tour moteur,
+                                        // puis il faut multiplier par le rapport de réduction du moteur)
+                                        // Pour l'instant, on garde la valeur que vous aviez.
 
-int vitesseMoteur=120;//vitesse moteur(entre 0 et 255)
-int vitesseDroit = vitesseMoteur;
-int vitesseGauche = vitesseMoteur; // Réduction de 5%
+// PID pour avancer droit (style simple)
+float kp_pid = 1.0; // Coeff Proportionnel
+float ki_pid = 0.0; // Coeff Intégral
+float kd_pid = 0.0; // Coeff Dérivé
+float erreur_prec_pid = 0;
+float somme_erreurs_pid = 0;
 
-// Interruption pour roue gauche
-void IRAM_ATTR interruptionGauche() {
-  if(digitalRead(ENC_G_CH_A)==HIGH){//iram_attr appele par le microcontroleur quand il detecte un top sur une des broches
-  compteurG++;// decrementer le compteur gauche
-}else{
-  compteurG--;// incrementer le compteur gauche
+// Variables pour la machine à états de test dans loop()
+int etat_loop = 0;
+unsigned long temps_etat_loop = 0;
+
+// --- Fonctions d'Interruption pour Encodeurs ---
+void IRAM_ATTR isr_enc_g() {
+  compteurG++;
 }
-}
-
-void avancer(){
-  digitalWrite(IN_1_D,LOW);
-  ledcWrite(0, vitesseDroit); // Moteur droit avant vitesse 150
-  digitalWrite(IN_2_G, LOW); // Moteur droit avant
-  ledcWrite(1, vitesseGauche ); // Moteur gauche avant vitesse 150
-}
-void arret(){
-  //MOTEUR DROIT
-  digitalWrite(IN_1_D, LOW);
-  digitalWrite(IN_2_D, LOW);
-  ledcWrite(0, 0); // Moteur droit arret
-  //MOTEUR GAUCHE
-  digitalWrite(IN_1_G, LOW);
-  digitalWrite(IN_2_G, LOW);
-  ledcWrite(1, 0); // Moteur gauche arret 
-}
-// Interruption pour roue droite
-void IRAM_ATTR interruptionDroite() {
-  if(digitalRead(ENC_D_CH_B)==HIGH){//iram_attr appele par le microcontroleur quand il detecte un top sur une des broches
-  compteurD++;// incrementer le compteur droit
-}else{
-  compteurD--;// decrementer le compteur droit
-}
+void IRAM_ATTR isr_enc_d() {
+  compteurD++;
 }
 
-void setup() {
-  Serial.begin(115200);// Initialiser la communication série à 115200 bauds
-  DebutCalibrage = millis(); // Initialiser le temps de début de calibration
-  offSetGyroZ=0;
-  int nbechantillons = 0; // Initialiser le nombre d'échantillons à 0
-
-//moyenne gyro sur 2s
-  while (millis() - DebutCalibrage < dureeCalibrage) { // Boucle de calibration pendant 2 secondes
-    offSetGyroZ += IMU.readFloatGyroZ(); // Ajouter la valeur à l'offset
-    nbechantillons++; //menter le nombre d'échantillons
-    delay(5); // Attendre 5 ms
+// --- Fonctions Moteurs ---
+void moteur_droit_vitesse(int vitesse) {
+  vitesse = constrain(vitesse, -VITESSE_MAX, VITESSE_MAX);
+  if (vitesse > 0) { 
+    ledcWrite(CANAL_D_ARRIERE, 0);
+    ledcWrite(CANAL_D_AVANT, vitesse);
+  } else if (vitesse < 0) { 
+    ledcWrite(CANAL_D_AVANT, 0);
+    ledcWrite(CANAL_D_ARRIERE, -vitesse);
+  } else { 
+    ledcWrite(CANAL_D_AVANT, 0);
+    ledcWrite(CANAL_D_ARRIERE, 0);
   }
-  offSetGyroZ/= nbechantillons; // Calculer la moyenne
-  IMUcalibre  = true; // Indiquer que l'IMU est calibré
+}
 
-  Serial.print("Offset Gyro z detecte : ");
-  Serial.println(offSetGyroZ, 3); // Afficher l'offset sur le moniteur série
-
-  
-  Wire.begin(SDA, SCL); // Initialiser la communication I2C
-  if (IMU.begin() !=0 ) { // Initialiser l'IMU
-    Serial.println("Erreur de communication avec l'IMU");
-    while (true); // Boucle infinie si l'IMU ne répond pas
-  }else{
-    Serial.println("IMU initialisé avec succès");
+void moteur_gauche_vitesse(int vitesse) {
+  vitesse = constrain(vitesse, -VITESSE_MAX, VITESSE_MAX);
+  if (vitesse > 0) { 
+    ledcWrite(CANAL_G_ARRIERE, 0);
+    ledcWrite(CANAL_G_AVANT, vitesse);
+  } else if (vitesse < 0) { 
+    ledcWrite(CANAL_G_AVANT, 0);
+    ledcWrite(CANAL_G_ARRIERE, -vitesse);
+  } else { 
+    ledcWrite(CANAL_G_AVANT, 0);
+    ledcWrite(CANAL_G_ARRIERE, 0);
   }
-  tempsPrecedent = millis(); // Initialiser le temps précédent
+}
 
+void moteurs_arret() {
+  moteur_droit_vitesse(0);
+  moteur_gauche_vitesse(0);
+}
 
-  //config broches
-  pinMode(LEDU1, OUTPUT);//LED
+// --- Fonctions Capteurs ---
+void reset_compteurs_enc() {
+  compteurG = 0;
+  compteurD = 0;
+  erreur_prec_pid = 0; 
+  somme_erreurs_pid = 0; 
+}
 
-//MOTEUR DROIT
-  pinMode(EN_D, OUTPUT);
-  pinMode(IN_1_D, OUTPUT);//def droit arriere
-  pinMode(IN_2_D, OUTPUT);//def droit avant
+void reset_angle_gyro() {
+  angleZ = 0.0;
+  tempsGyro_prec = millis();
+  gyroZ_filtre_prec = 0.0;
+}
+
+float lire_gyro_angleZ() {
+  if (!imuOK) return angleZ;
+  unsigned long t_actuel = millis();
+  float dt = (t_actuel - tempsGyro_prec) / 1000.0; 
+  tempsGyro_prec = t_actuel;
+  if (dt <= 0) return angleZ; 
+  float gyroZ_brut = myIMU.readFloatGyroZ() - gyroZ_offset;
+  float gyroZ_filtre = ALPHA_GYRO * gyroZ_brut + (1.0 - ALPHA_GYRO) * gyroZ_filtre_prec;
+  gyroZ_filtre_prec = gyroZ_filtre;
+  if (abs(gyroZ_filtre) > 0.15) { 
+    angleZ += gyroZ_filtre * dt;
+  }
+  return angleZ;
+}
+
+// --- Fonctions de Mouvement ---
+void avancer_pid(int vitesse_base) {
+  if (vitesse_base == 0) {
+    moteurs_arret();
+    return;
+  }
+  float erreur = compteurD - compteurG; 
+  somme_erreurs_pid += erreur;
+  somme_erreurs_pid = constrain(somme_erreurs_pid, -500, 500); 
+  float derivee_erreur = erreur - erreur_prec_pid;
+  erreur_prec_pid = erreur;
+  float correction = (kp_pid * erreur) + (ki_pid * somme_erreurs_pid) + (kd_pid * derivee_erreur);
+  correction = constrain(correction, -50, 50); 
+  int vit_D = vitesse_base - (int)correction;
+  int vit_G = vitesse_base + (int)correction;
+  vit_D = constrain(vit_D, 0, VITESSE_MAX); 
+  vit_G = constrain(vit_G, 0, VITESSE_MAX);
+  moteur_droit_vitesse(vit_D);
+  moteur_gauche_vitesse(vit_G);
+}
+
+void tourner_gyro(float angle_cible_deg, int vitesse_rot) {
+  Serial.print("Rotation vers: "); Serial.print(angle_cible_deg); Serial.println(" deg");
+  reset_angle_gyro(); 
+  float angle_actuel = 0.0;
+  float marge_stop = 12.0; 
+  if (angle_cible_deg > 0) { 
+    moteur_gauche_vitesse(vitesse_rot);
+    moteur_droit_vitesse(-vitesse_rot);
+  } else if (angle_cible_deg < 0) { 
+    moteur_gauche_vitesse(-vitesse_rot);
+    moteur_droit_vitesse(vitesse_rot);
+  } else {
+    moteurs_arret();
+    return; 
+  }
+  while (abs(angle_actuel) < abs(angle_cible_deg) - marge_stop) {
+    angle_actuel = lire_gyro_angleZ();
+    delay(5); 
+  }
+  moteurs_arret();
+  Serial.print("Rotation finie. Angle final: "); Serial.println(lire_gyro_angleZ());
+  delay(200); 
+}
+
+/**
+ * @brief Fait avancer le robot d'une distance spécifiée en cm.
+ * @param distance_cm La distance à parcourir en centimètres.
+ * @param vitesse_avance La vitesse de base pour avancer (0-255).
+ */
+void avancer_distance(float distance_cm, int vitesse_avance) {
+  Serial.print("Avancer de: "); Serial.print(distance_cm); Serial.println(" cm");
+  reset_compteurs_enc(); // Remettre les compteurs à zéro avant de commencer
+
+  // Calculer le nombre de ticks d'encodeur nécessaires pour cette distance
+  // Ticks = (Distance / Circonférence) * TicksParTour
+  long ticks_objectif = (long)((distance_cm / CIRCONFERENCE_ROUE_CM) * TICKS_PAR_TOUR_ENCODEUR);
+  Serial.print("Objectif en ticks: "); Serial.println(ticks_objectif);
+
+  if (ticks_objectif <= 0) {
+    Serial.println("Distance nulle ou négative, pas de mouvement.");
+    return;
+  }
+
+  // Boucle tant que la moyenne des ticks des deux encodeurs n'a pas atteint l'objectif
+  // On utilise la moyenne pour être un peu plus robuste si une roue patine légèrement
+  // ou si le PID n'est pas parfait.
+  while ((compteurG + compteurD) / 2 < ticks_objectif) {
+    avancer_pid(vitesse_avance); // Utilise le PID pour essayer d'aller droit
     
-  //MOTEUR GAUCHE
-  pinMode(EN_G, OUTPUT);
-  pinMode(IN_1_G, OUTPUT);//def gauche avant
-  pinMode(IN_2_G, OUTPUT);//def gauche arriere
-
-  // MOTEUR :
-  digitalWrite(EN_D, HIGH);//envoi courant au moteur droit
-  digitalWrite(EN_G,HIGH);//envoi courant moteur gauche
-
-  // ENCODEURS 
-  pinMode(ENC_G_CH_A, INPUT);// Configurer la broche de l'encodeur GAUCHE comme entrée
-  pinMode(ENC_D_CH_A, INPUT);// Configurer la broche de l'encodeur DROIT comme entrée
-  pinMode(ENC_G_CH_B, INPUT);// Configurer la broche de l'encodeur GAUCHE comme entrée
-  pinMode(ENC_D_CH_B, INPUT);// Configurer la broche de l'encodeur DROIT comme entrée
-
-  // Attacher les interruptions aux deux encodeurs (front montant)
-  attachInterrupt(digitalPinToInterrupt(ENC_G_CH_A), interruptionGauche, RISING);//des que tension monte a 1 sur lune des broche 32 ou 27 on appelle la fnc intterruptionGauche
-  attachInterrupt(digitalPinToInterrupt(ENC_D_CH_A), interruptionDroite, RISING);
-
-  //calcul nbr de tops pr 20cm
-  objectfif=int((20.0/ circonferenceRoue)* topsParTour); // 20 cm de distance à parcourir
-
-  //CONFIGURATION PMW
-  const int freq = 1000; // Fréquence de PWM
-  const int resolution = 8; // Canal de PWM
-
-  ledcSetup(0, freq, resolution); // Configurer le canal PWM pour le moteur droit
-  ledcSetup(1, freq, resolution); // Configurer le canal PWM pour le moteur gauche
-  ledcAttachPin(IN_2_D, 0); // Attacher le canal PWM au moteur droit
-  ledcAttachPin(IN_1_G, 1); // Attacher le canal PWM au moteur gauche
-
-  digitalWrite(IN_1_D, LOW); // Moteur droit arriere
-  ledcWrite(0, vitesseMoteur); // Moteur droit avant vitesse 150
-  digitalWrite(IN_2_G, LOW); // Moteur droit avant 
-  ledcWrite(1, 100); // Moteur gauche avant vitesse 150
-
-  enMarche  = true; // Le robot est en marche
-  
-  
-}
-
-void loop() {
- /* if(enMarche && abs(compteurG) >= objectfif && abs(compteurD) >= objectfif) { // Si le robot a parcouru la distance souhaitée
-    arret(); // Arrêter le robot
-    Serial.println("Objectif atteint ! Distance de 20cm atteinte !"); // Afficher un message sur le moniteur série
-    enMarche = false; // Le robot s'arrête
-    return; // Sortir de la boucle
-  }*/
-
- //temps écoulé
-  unsigned long tempsActuel = millis(); // Obtenir le temps actuel
-  float deltaTemps = (tempsActuel - tempsPrecedent) / 1000.0; // Calculer le temps écoulé en secondes
-  tempsPrecedent = tempsActuel; // Mettre à jour le temps précédent
-
-//lecture gyroZ
-if(!IMUcalibre) return;
-float mesureGyroZ = IMU.readFloatGyroZ(); // Lire la valeur du gyroscope sur l'axe Z
-  gyroZFiltre = alpha * mesureGyroZ + (1 - alpha) * gyroZFiltre; // Filtrer la valeur du gyroscope
-  if(abs(gyroZFiltre) < 0.1){ // Si la vitesse angulaire est faible
-    gyroZFiltre = 0.0; // Mettre à zéro la valeur filtrée
+    // Affichage pour debug (optionnel)
+    /*
+    Serial.print("Ticks G: "); Serial.print(compteurG);
+    Serial.print(" | Ticks D: "); Serial.print(compteurD);
+    Serial.print(" | Objectif: "); Serial.println(ticks_objectif);
+    */
+    delay(20); // Petit délai pour la boucle de contrôle
   }
-  
-  float vitesseAngulaireZ = gyroZFiltre; // Calculer la vitesse angulaire Z
-//integration pour obtenir l'angle
-angleZ += vitesseAngulaireZ * deltaTemps; // Intégrer la vitesse angulaire pour obtenir l'angle
 
-//correction orientation
-float correctionGyro = -vitesseAngulaireZ * kpGyro; // Calculer la correction de l'angle Z*
-
-//correction pid encodeur
-  int erreur = compteurD - compteurG; // Calculer l'erreur entre les deux roues
-  integrale += erreur; // Calculer l'intégrale de l'erreur
-  float derivee = erreur - erreurprecedente; // Calculer la dérivée de l'erreur
-  erreurprecedente = erreur; // Mettre à jour l'erreur précédente
-  float correctionPID = (kp * erreur) + (ki * integrale) + (kd*derivee); // Calculer la correction PID
-  correctionPID = constrain(correctionPID, -30, 30); // Limiter la correction entre -50 et 50
-
-//correction totale
-float correctionTotale = correctionPID + correctionGyro; // Calculer la correction totale
-
- int pwmG = constrain(vitesseMoteur + correctionTotale, 30, 255); // Calculer la vitesse du moteur gauche avec vitessemini 30
-  int pwmD = constrain(vitesseMoteur - correctionTotale, 30,255); // Calculer la vitesse du moteur droit 
-  ledcWrite(0, pwmD); // Appliquer la vitesse au moteur droit
-  ledcWrite(1, pwmG); // Appliquer la vitesse au moteur gauche
-
-//afficher angleZ
-  Serial.print("Angle Z: ");
-  Serial.print(angleZ,2); // Afficher l'angle Z
-  Serial.print(" | Vitesse angulaire Z: ");
-  Serial.println(vitesseAngulaireZ, 2); // Afficher la vitesse angulaire Z
-
-  Serial.print("CorrectionTotale: ");
-  Serial.println(correctionTotale);
-  Serial.print("pwm Droit: ");
-  Serial.print(pwmD);
-  Serial.print(" | PWM gauche: ");
-  Serial.println(pwmG);
-
-
-  float distanceG = (compteurG* circonferenceRoue) /topsParTour; // Calculer la distance parcourue par la roue gauche
-  float distanceD = (compteurD * circonferenceRoue) / topsParTour; // Calculer la distance parcourue par la ro  ue droite
-  Serial.print("distance Gauche : ");
-  Serial.print(distanceG, 2); // Afficher la distance gauche
-  Serial.print("cm | distance Droite : ");
-  Serial.println(distanceD, 2);//afficher la distance droite
-  Serial.println(" cm ");
-  delay(500); // Affiche toutes les 0.5 sec
-
+  moteurs_arret(); // Arrêter les moteurs une fois la distance atteinte
+  Serial.println("Distance atteinte.");
+  delay(200); // Petite pause après le mouvement
 }
+
+
+// --- Setup ---
+void setup() {
+  Serial.begin(115200);
+  Serial.println("\n--- Init Drawbot (Style Etudiant - Escalier) ---");
+  pinMode(LEDU1, OUTPUT); pinMode(LEDU2, OUTPUT);
+  digitalWrite(LEDU1, LOW); digitalWrite(LEDU2, LOW);
+  Wire.begin(SDA_PIN, SCL_PIN);
+  Serial.println("I2C OK.");
+  pinMode(EN_D, OUTPUT); pinMode(EN_G, OUTPUT);
+  digitalWrite(EN_D, HIGH); digitalWrite(EN_G, HIGH); 
+  pinMode(IN_1_D, OUTPUT); pinMode(IN_2_D, OUTPUT);
+  pinMode(IN_1_G, OUTPUT); pinMode(IN_2_G, OUTPUT);
+  ledcSetup(CANAL_D_AVANT, FREQ_PWM, RESOLUTION_PWM); ledcAttachPin(IN_2_D, CANAL_D_AVANT);
+  ledcSetup(CANAL_D_ARRIERE, FREQ_PWM, RESOLUTION_PWM); ledcAttachPin(IN_1_D, CANAL_D_ARRIERE);
+  ledcSetup(CANAL_G_AVANT, FREQ_PWM, RESOLUTION_PWM); ledcAttachPin(IN_1_G, CANAL_G_AVANT);
+  ledcSetup(CANAL_G_ARRIERE, FREQ_PWM, RESOLUTION_PWM); ledcAttachPin(IN_2_G, CANAL_G_ARRIERE);
+  moteurs_arret();
+  Serial.println("Moteurs OK.");
+  pinMode(ENC_G_CH_A, INPUT_PULLUP); pinMode(ENC_G_CH_B, INPUT_PULLUP);
+  pinMode(ENC_D_CH_A, INPUT_PULLUP); pinMode(ENC_D_CH_B, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENC_G_CH_A), isr_enc_g, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENC_D_CH_A), isr_enc_d, RISING);
+  reset_compteurs_enc();
+  Serial.println("Encodeurs OK.");
+  if (myIMU.begin() != 0) {
+    Serial.println("ERREUR IMU!");
+    while (true) { digitalWrite(LEDU1, HIGH); delay(100); digitalWrite(LEDU1, LOW); delay(100); } 
+  }
+  Serial.println("IMU detectee. Calibration gyro Z (2s)...");
+  long t_calib = millis(); int n_calib = 0; gyroZ_offset = 0;
+  while (millis() - t_calib < 2000) {
+    gyroZ_offset += myIMU.readFloatGyroZ(); n_calib++; delay(5);
+  }
+  if (n_calib > 0) gyroZ_offset /= n_calib;
+  Serial.print("Offset Gyro Z: "); Serial.println(gyroZ_offset);
+  imuOK = true;
+  reset_angle_gyro(); 
+  Serial.println("IMU OK.");
+  Serial.println("--- Drawbot Pret --- ");
+  digitalWrite(LEDU2, HIGH); 
+  temps_etat_loop = millis();
+}
+
+// --- Loop ---
+void loop() {
+  // Machine a etats pour tester l'escalier
+  switch (etat_loop) {
+    case 0: // Prêt à commencer la séquence de l'escalier
+      Serial.println("Loop Etat 0: Debut sequence escalier");
+      etat_loop = 10; // Premier segment de la première marche
+      break;
+
+    // MARCHE 1
+    case 10: // Avancer de 20cm (premier segment horizontal)
+      Serial.println("Marche 1 - Segment 1 (avance 20cm)");
+      avancer_distance(20.0, 60); // Avance de 20cm à vitesse 100
+      etat_loop = 11;
+      break;
+    case 11: // Tourner de 90 degrés à droite
+      Serial.println("Marche 1 - Virage 1 (+90 deg)");
+      tourner_gyro(90.0, 60); // Tourne à droite
+      etat_loop = 12;
+      break;
+    case 12: // Avancer de 20cm (premier segment vertical)
+      Serial.println("Marche 1 - Segment 2 (avance 20cm)");
+      avancer_distance(20.0, 60);
+      etat_loop = 13; // On pourrait s'arrêter ici pour une seule marche, ou continuer
+      break;
+    // Pour un escalier, il faudrait tourner à gauche pour se préparer à la prochaine marche
+    case 13: // Tourner de 90 degrés à gauche pour la marche suivante
+      Serial.println("Marche 1 - Virage 2 (-90 deg pour préparer marche 2)");
+      tourner_gyro(-90.0, 60); // Tourne à gauche
+      etat_loop = 20; // Prêt pour la marche 2
+      break;
+
+    // MARCHE 2 (à ajouter sur le même modèle)
+    case 20: 
+      Serial.println("Marche 2 - Segment 1 (avance 20cm)");
+      avancer_distance(20.0, 60); 
+      etat_loop = 21;
+      break;
+    case 21: 
+      Serial.println("Marche 2 - Virage 1 (+90 deg)");
+      tourner_gyro(90.0, 60); 
+      etat_loop = 22;
+      break;
+    case 22: 
+      Serial.println("Marche 2 - Segment 2 (avance 20cm)");
+      avancer_distance(20.0, 60);
+      etat_loop = 23; 
+      break;
+    case 23: 
+      Serial.println("Marche 2 - Virage 2 (-90 deg pour préparer marche 3)");
+      tourner_gyro(-90.0, 60); 
+      etat_loop = 30; // Prêt pour la marche 3
+      break;
+
+    // MARCHE 3 (à ajouter sur le même modèle)
+    case 30: 
+      Serial.println("Marche 3 - Segment 1 (avance 20cm)");
+      avancer_distance(20.0, 60); 
+      etat_loop = 31;
+      break;
+    case 31: 
+      Serial.println("Marche 3 - Virage 1 (+90 deg)");
+      tourner_gyro(90.0, 60); 
+      etat_loop = 32;
+      break;
+    case 32: 
+      Serial.println("Marche 3 - Segment 2 (avance 20cm)");
+      avancer_distance(20.0, 60);
+      etat_loop = 99; // Fin de l'escalier
+      break;
+
+    case 99: // Fin de la séquence
+      Serial.println("Sequence escalier terminee.");
+      digitalWrite(LEDU1, !digitalRead(LEDU1)); 
+      delay(500);
+      // Pour ne pas recommencer, on reste ici. Pour recommencer : etat_loop = 0;
+      break;
+  }
+}
+
