@@ -1,6 +1,6 @@
 /***************************************************************************
- * Drawbot.ino - Projet Robot Dessinateur (Style Etudiant)
- * ECE Paris - Projet Systèmes Bouclés
+ * Drawbot
+ * ECE Paris 
  ***************************************************************************/
 
 #include <Arduino.h>
@@ -60,11 +60,9 @@ volatile long compteurD = 0; // Compteur encodeur Droit
 const float DIAMETRE_ROUE_CM = 9.0; // Diamètre de la roue en cm
 const float CIRCONFERENCE_ROUE_CM = DIAMETRE_ROUE_CM * PI; // PI est une constante Arduino
 const int TICKS_PAR_TOUR_ENCODEUR = 1050; // Nombre de ticks pour un tour complet de l'encodeur
-                                        // (A vérifier pour vos encodeurs N20, souvent c'est par tour moteur,
-                                        // puis il faut multiplier par le rapport de réduction du moteur)
-                                        // Pour l'instant, on garde la valeur que vous aviez.
+                                        
 
-// PID pour avancer droit (style simple)
+// PID pour avancer droit 
 float kp_pid = 1.0; // Coeff Proportionnel
 float ki_pid = 0.0; // Coeff Intégral
 float kd_pid = 0.0; // Coeff Dérivé
@@ -191,11 +189,7 @@ void tourner_gyro(float angle_cible_deg, int vitesse_rot) {
   delay(200); 
 }
 
-/**
- * @brief Fait avancer le robot d'une distance spécifiée en cm.
- * @param distance_cm La distance à parcourir en centimètres.
- * @param vitesse_avance La vitesse de base pour avancer (0-255).
- */
+
 void avancer_distance(float distance_cm, int vitesse_avance) {
   Serial.print("Avancer de: "); Serial.print(distance_cm); Serial.println(" cm");
   reset_compteurs_enc(); // Remettre les compteurs à zéro avant de commencer
