@@ -1,11 +1,14 @@
 /***************************************************************************
- * Drawbot
- * ECE Paris 
+ * Drawbot.ino - Projet Robot Dessinateur (Style Etudiant)
+ * ECE Paris - Projet Systèmes Bouclés
+ * Séquence Escalier et Test Mouvements - Version avec commandes Wi-Fi
  ***************************************************************************/
 
 #include <Arduino.h>
 #include <Wire.h>              // Pour I2C (IMU)
 #include <SparkFunLSM6DS3.h> // Pour l'IMU LSM6DS3
+#include <WiFi.h>              // Pour la communication Wi-Fi
+#include <WebServer.h>         // Pour créer un serveur web simple
 
 // LEDs
 #define LEDU1 25
@@ -31,82 +34,97 @@
 
 // Adresses I2C
 #define ADDR_IMU 0x6B // Adresse IMU LSM6DS3
-// #define ADDR_MAG 0x1E // Adresse Magnétomètre (pas utilisé pour l'instant)
 
 // PWM Moteurs
 const int FREQ_PWM = 1000;    // Fréquence PWM
 const int RESOLUTION_PWM = 8; // Résolution PWM (0-255)
-const int VITESSE_MAX = 255;
-// Canaux PWM (pour ESP32, on peut en choisir)
+const int VITESSE_MAX = 255;  // Vitesse maximale pour les moteurs (valeur PWM)
 const int CANAL_D_AVANT = 0;
 const int CANAL_D_ARRIERE = 1;
 const int CANAL_G_AVANT = 2;
 const int CANAL_G_ARRIERE = 3;
 
 // IMU et Gyroscope
-LSM6DS3 myIMU(I2C_MODE, ADDR_IMU); // Crée l'objet IMU
-float angleZ = 0.0;                // Angle Z du robot (calculé)
-float gyroZ_offset = 0.0;          // Offset du gyroscope Z après calibration
-bool imuOK = false;                // Pour savoir si l'IMU est bien initialisée
-unsigned long tempsGyro_prec = 0;  // Temps précédent pour calcul angle gyro
-float gyroZ_filtre_prec = 0.0;     // Valeur filtrée précédente du gyro Z
-const float ALPHA_GYRO = 0.1;      // Coeff pour filtre passe-bas du gyro
+LSM6DS3 myIMU(I2C_MODE, ADDR_IMU); 
+float angleZ = 0.0;                
+float gyroZ_offset = 0.0;          
+bool imuOK = false;                
+unsigned long tempsGyro_prec = 0;  
+float gyroZ_filtre_prec = 0.0;     
+const float ALPHA_GYRO = 0.1;      
 
 // Encodeurs
-volatile long compteurG = 0; // Compteur encodeur Gauche
-volatile long compteurD = 0; // Compteur encodeur Droit
+volatile long compteurG = 0; 
+volatile long compteurD = 0; 
 
-// Constantes pour le calcul de distance (à ajuster selon votre robot)
-const float DIAMETRE_ROUE_CM = 9.0; // Diamètre de la roue en cm
-const float CIRCONFERENCE_ROUE_CM = DIAMETRE_ROUE_CM * PI; // PI est une constante Arduino
-const int TICKS_PAR_TOUR_ENCODEUR = 1050; // Nombre de ticks pour un tour complet de l'encodeur
-                                        
+// Constantes pour le calcul de distance (ces valeurs sont à ajuster précisément pour votre robot)
+float DIAMETRE_ROUE_CM = 9.0; // Diamètre de la roue en cm (modifiable via Wi-Fi pour calibration)
+float CIRCONFERENCE_ROUE_CM = DIAMETRE_ROUE_CM * PI; 
+int TICKS_PAR_TOUR_ENCODEUR = 1050; // Nombre de "ticks" (modifiable via Wi-Fi pour calibration)
 
-// PID pour avancer droit 
-float kp_pid = 1.0; // Coeff Proportionnel
-float ki_pid = 0.0; // Coeff Intégral
-float kd_pid = 0.0; // Coeff Dérivé
-float erreur_prec_pid = 0;
-float somme_erreurs_pid = 0;
+// PID pour avancer droit
+float kp_pid = 1.0; 
+float ki_pid = 0.0; 
+float kd_pid = 0.0; 
+float erreur_prec_pid = 0;    
+float somme_erreurs_pid = 0;  
+
+// PID pour l'asservissement en orientation
+float kp_orientation = 0.8;  // Réduit significativement pour moins d'oscillations
+float ki_orientation = 0.001; // Presque supprimé l'intégrale
+float kd_orientation = 1.2;  // Augmenté pour plus d'amortissement
+float erreur_prec_orientation = 0.0;
+float somme_erreurs_orientation = 0.0;
+const float SEUIL_ERREUR_ORIENTATION = 0.5; // Augmenté pour plus de stabilité
+const int VITESSE_MAX_CORRECTION = 100;     // Réduit pour des mouvements plus doux
 
 // Variables pour la machine à états de test dans loop()
-int etat_loop = 0;
-unsigned long temps_etat_loop = 0;
+int etat_loop = 0; // 0 = Attente commandes Wi-Fi, 1-99 = Séquence Escalier
+unsigned long temps_etat_loop = 0; 
+
+// Configuration du Point d'Accès Wi-Fi
+const char* ssid_ap = "Drawbot_AP"; 
+const char* password_ap = NULL;     
+WebServer server(80);
+
+// Constantes pour le dessin de cercle
+const float DELTA_ANGLE_CERCLE = 5.0;  // Incrément d'angle en degrés
+const float TOLERANCE_FERMETURE = 0.5;  // Tolérance de fermeture en cm
 
 // --- Fonctions d'Interruption pour Encodeurs ---
 void IRAM_ATTR isr_enc_g() {
-  compteurG++;
+  compteurG++; 
 }
 void IRAM_ATTR isr_enc_d() {
-  compteurD++;
+  compteurD++; 
 }
 
 // --- Fonctions Moteurs ---
 void moteur_droit_vitesse(int vitesse) {
-  vitesse = constrain(vitesse, -VITESSE_MAX, VITESSE_MAX);
+  vitesse = constrain(vitesse, -VITESSE_MAX, VITESSE_MAX); 
   if (vitesse > 0) { 
-    ledcWrite(CANAL_D_ARRIERE, 0);
-    ledcWrite(CANAL_D_AVANT, vitesse);
+    ledcWrite(CANAL_D_ARRIERE, 0); 
+    ledcWrite(CANAL_D_AVANT, vitesse); 
   } else if (vitesse < 0) { 
-    ledcWrite(CANAL_D_AVANT, 0);
-    ledcWrite(CANAL_D_ARRIERE, -vitesse);
+    ledcWrite(CANAL_D_AVANT, 0); 
+    ledcWrite(CANAL_D_ARRIERE, -vitesse); 
   } else { 
-    ledcWrite(CANAL_D_AVANT, 0);
-    ledcWrite(CANAL_D_ARRIERE, 0);
+    ledcWrite(CANAL_D_AVANT, 0); 
+    ledcWrite(CANAL_D_ARRIERE, 0); 
   }
 }
 
 void moteur_gauche_vitesse(int vitesse) {
-  vitesse = constrain(vitesse, -VITESSE_MAX, VITESSE_MAX);
+  vitesse = constrain(vitesse, -VITESSE_MAX, VITESSE_MAX); 
   if (vitesse > 0) { 
-    ledcWrite(CANAL_G_ARRIERE, 0);
-    ledcWrite(CANAL_G_AVANT, vitesse);
+    ledcWrite(CANAL_G_ARRIERE, 0); 
+    ledcWrite(CANAL_G_AVANT, vitesse); 
   } else if (vitesse < 0) { 
-    ledcWrite(CANAL_G_AVANT, 0);
-    ledcWrite(CANAL_G_ARRIERE, -vitesse);
+    ledcWrite(CANAL_G_AVANT, 0); 
+    ledcWrite(CANAL_G_ARRIERE, -vitesse); 
   } else { 
-    ledcWrite(CANAL_G_AVANT, 0);
-    ledcWrite(CANAL_G_ARRIERE, 0);
+    ledcWrite(CANAL_G_AVANT, 0); 
+    ledcWrite(CANAL_G_ARRIERE, 0); 
   }
 }
 
@@ -125,19 +143,19 @@ void reset_compteurs_enc() {
 
 void reset_angle_gyro() {
   angleZ = 0.0;
-  tempsGyro_prec = millis();
+  tempsGyro_prec = millis(); 
   gyroZ_filtre_prec = 0.0;
 }
 
 float lire_gyro_angleZ() {
-  if (!imuOK) return angleZ;
+  if (!imuOK) return angleZ; 
   unsigned long t_actuel = millis();
   float dt = (t_actuel - tempsGyro_prec) / 1000.0; 
-  tempsGyro_prec = t_actuel;
+  tempsGyro_prec = t_actuel; 
   if (dt <= 0) return angleZ; 
   float gyroZ_brut = myIMU.readFloatGyroZ() - gyroZ_offset;
   float gyroZ_filtre = ALPHA_GYRO * gyroZ_brut + (1.0 - ALPHA_GYRO) * gyroZ_filtre_prec;
-  gyroZ_filtre_prec = gyroZ_filtre;
+  gyroZ_filtre_prec = gyroZ_filtre; 
   if (abs(gyroZ_filtre) > 0.15) { 
     angleZ += gyroZ_filtre * dt;
   }
@@ -145,13 +163,85 @@ float lire_gyro_angleZ() {
 }
 
 // --- Fonctions de Mouvement ---
+void asservissement_orientation() {
+  float angle_actuel = lire_gyro_angleZ();
+  float erreur = angle_actuel;
+  
+  // Calcul du temps écoulé pour la dérivée
+  static unsigned long temps_prec = 0;
+  unsigned long temps_actuel = millis();
+  float dt = (temps_actuel - temps_prec) / 1000.0;
+  temps_prec = temps_actuel;
+  
+  // Zone morte pour éviter les micro-corrections
+  if (abs(erreur) < SEUIL_ERREUR_ORIENTATION) {
+    moteurs_arret();
+    somme_erreurs_orientation = 0;
+    return;
+  }
+  
+  // Calcul de l'intégrale avec anti-windup très restrictif
+  if (abs(erreur) < 2.0) { // Zone d'intégration très réduite
+    somme_erreurs_orientation += erreur * dt;
+    somme_erreurs_orientation = constrain(somme_erreurs_orientation, -5, 5); // Limite l'accumulation
+  } else {
+    somme_erreurs_orientation = 0; // Reset si erreur trop grande
+  }
+  
+  // Calcul de la dérivée avec plus de filtrage
+  float derivee_erreur = (erreur - erreur_prec_orientation) / dt;
+  static float derivee_filtree = 0;
+  derivee_filtree = 0.9 * derivee_filtree + 0.1 * derivee_erreur; // Filtre plus agressif
+  erreur_prec_orientation = erreur;
+  
+  // Calcul de la correction avec une zone morte centrale
+  float correction = 0;
+  if (abs(erreur) > SEUIL_ERREUR_ORIENTATION) {
+    correction = (kp_orientation * erreur) + 
+                (ki_orientation * somme_erreurs_orientation) + 
+                (kd_orientation * derivee_filtree);
+  }
+  
+  correction = constrain(correction, -VITESSE_MAX_CORRECTION, VITESSE_MAX_CORRECTION);
+  
+  // Application de la correction avec une rampe plus douce
+  static float puissance_precedente = 0;
+  float delta_max = 15.0; // Changement de puissance très progressif
+  
+  // Calcul de la nouvelle puissance avec limitation de variation
+  float puissance = abs(correction);
+  puissance = constrain(puissance, 
+                       puissance_precedente - delta_max, 
+                       puissance_precedente + delta_max);
+                       
+  // Ajout d'une puissance minimale plus faible
+  if (puissance < 40) puissance = 40;
+  
+  puissance_precedente = puissance;
+  
+  // Application de la correction avec une zone morte
+  if (abs(erreur) > SEUIL_ERREUR_ORIENTATION) {
+    if (erreur > 0) {
+      moteur_gauche_vitesse(-puissance);
+      moteur_droit_vitesse(puissance);
+    } else {
+      moteur_gauche_vitesse(puissance);
+      moteur_droit_vitesse(-puissance);
+    }
+  } else {
+    moteurs_arret();
+  }
+  
+  delay(15); // Délai légèrement augmenté pour plus de stabilité
+}
+
 void avancer_pid(int vitesse_base) {
   if (vitesse_base == 0) {
     moteurs_arret();
     return;
   }
   float erreur = compteurD - compteurG; 
-  somme_erreurs_pid += erreur;
+  somme_erreurs_pid += erreur; 
   somme_erreurs_pid = constrain(somme_erreurs_pid, -500, 500); 
   float derivee_erreur = erreur - erreur_prec_pid;
   erreur_prec_pid = erreur;
@@ -169,182 +259,376 @@ void tourner_gyro(float angle_cible_deg, int vitesse_rot) {
   Serial.print("Rotation vers: "); Serial.print(angle_cible_deg); Serial.println(" deg");
   reset_angle_gyro(); 
   float angle_actuel = 0.0;
-  float marge_stop = 12.0; 
+  float marge_stop = 2.0;  // Réduit la marge d'arrêt
+  float vitesse_finale = vitesse_rot;
+  
+  // Première phase : rotation rapide
   if (angle_cible_deg > 0) { 
-    moteur_gauche_vitesse(vitesse_rot);
-    moteur_droit_vitesse(-vitesse_rot);
+    moteur_gauche_vitesse(vitesse_rot);  
+    moteur_droit_vitesse(-vitesse_rot); 
   } else if (angle_cible_deg < 0) { 
-    moteur_gauche_vitesse(-vitesse_rot);
-    moteur_droit_vitesse(vitesse_rot);
+    moteur_gauche_vitesse(-vitesse_rot); 
+    moteur_droit_vitesse(vitesse_rot);  
   } else {
-    moteurs_arret();
+    moteurs_arret(); 
     return; 
   }
-  while (abs(angle_actuel) < abs(angle_cible_deg) - marge_stop) {
-    angle_actuel = lire_gyro_angleZ();
+  
+  // Attendre d'être proche de l'angle cible
+  while (abs(angle_actuel) < abs(angle_cible_deg) - 10.0) {
+    angle_actuel = lire_gyro_angleZ(); 
     delay(5); 
   }
-  moteurs_arret();
-  Serial.print("Rotation finie. Angle final: "); Serial.println(lire_gyro_angleZ());
+  
+  // Deuxième phase : approche lente
+  vitesse_finale = vitesse_rot * 0.4; // Réduit la vitesse pour la fin
+  if (angle_cible_deg > 0) { 
+    moteur_gauche_vitesse(vitesse_finale);  
+    moteur_droit_vitesse(-vitesse_finale); 
+  } else { 
+    moteur_gauche_vitesse(-vitesse_finale); 
+    moteur_droit_vitesse(vitesse_finale);  
+  }
+  
+  // Attendre d'être très proche de l'angle final
+  while (abs(angle_actuel) < abs(angle_cible_deg) - marge_stop) {
+    angle_actuel = lire_gyro_angleZ(); 
+    delay(5); 
+  }
+  
+  moteurs_arret(); 
+  delay(200);
+  
+  // Correction fine si nécessaire
+  float erreur_finale = abs(abs(angle_actuel) - abs(angle_cible_deg));
+  if (erreur_finale > 1.0) {
+    vitesse_finale = vitesse_rot * 0.3; // Encore plus lent pour la correction
+    if (angle_actuel < angle_cible_deg) {
+      moteur_gauche_vitesse(vitesse_finale);
+      moteur_droit_vitesse(-vitesse_finale);
+    } else {
+      moteur_gauche_vitesse(-vitesse_finale);
+      moteur_droit_vitesse(vitesse_finale);
+    }
+    delay(50); // Petit coup bref
+    moteurs_arret();
+  }
+  
+  Serial.print("Rotation finie. Angle final mesure: "); Serial.println(lire_gyro_angleZ());
   delay(200); 
 }
 
-
 void avancer_distance(float distance_cm, int vitesse_avance) {
-  Serial.print("Avancer de: "); Serial.print(distance_cm); Serial.println(" cm");
-  reset_compteurs_enc(); // Remettre les compteurs à zéro avant de commencer
-
-  // Calculer le nombre de ticks d'encodeur nécessaires pour cette distance
-  // Ticks = (Distance / Circonférence) * TicksParTour
+  Serial.print("Avancer de: "); Serial.print(distance_cm); Serial.print(" cm (Vitesse: "); Serial.print(vitesse_avance); Serial.println(")");
+  reset_compteurs_enc(); 
+  CIRCONFERENCE_ROUE_CM = DIAMETRE_ROUE_CM * PI; // Recalcule au cas où DIAMETRE_ROUE_CM a changé
   long ticks_objectif = (long)((distance_cm / CIRCONFERENCE_ROUE_CM) * TICKS_PAR_TOUR_ENCODEUR);
   Serial.print("Objectif en ticks: "); Serial.println(ticks_objectif);
-
   if (ticks_objectif <= 0) {
-    Serial.println("Distance nulle ou négative, pas de mouvement.");
+    Serial.println("Distance nulle ou negative, pas de mouvement.");
+    return;
+  }
+  unsigned long temps_debut_mouvement = millis();
+  while ((compteurG + compteurD) / 2 < ticks_objectif) {
+    avancer_pid(vitesse_avance); 
+    if (millis() - temps_debut_mouvement > 15000) { // Sécurité: timeout de 15s
+        Serial.println("Timeout! Mouvement d'avancer arrêté.");
+        break;
+    }
+    delay(10); 
+  }
+  moteurs_arret(); 
+  Serial.print("Distance atteinte. Ticks Gauche: "); Serial.print(compteurG);
+  Serial.print(", Ticks Droit: "); Serial.println(compteurD);
+  delay(200); 
+}
+
+void dessiner_cercle(float rayon_cm) {
+  if (rayon_cm < 2.0 || rayon_cm > 20.0) {
+    Serial.println("Rayon invalide. Doit être entre 2 et 20 cm");
     return;
   }
 
-  // Boucle tant que la moyenne des ticks des deux encodeurs n'a pas atteint l'objectif
-  // On utilise la moyenne pour être un peu plus robuste si une roue patine légèrement
-  // ou si le PID n'est pas parfait.
-  while ((compteurG + compteurD) / 2 < ticks_objectif) {
-    avancer_pid(vitesse_avance); // Utilise le PID pour essayer d'aller droit
+  // Calcul de la circonférence et de la distance par segment
+  float circonference = 2.0 * PI * rayon_cm;
+  float distance_par_segment = (DELTA_ANGLE_CERCLE / 360.0) * circonference;
+  
+  // Position initiale
+  float x_initial = 0;
+  float y_initial = 0;
+  float x_actuel = 0;
+  float y_actuel = 0;
+  
+  // Dessiner le cercle segment par segment
+  for (float angle = 0; angle <= 360.0; angle += DELTA_ANGLE_CERCLE) {
+    float angle_rad = angle * PI / 180.0;
+    float x_cible = rayon_cm * cos(angle_rad);
+    float y_cible = rayon_cm * sin(angle_rad);
     
-    // Affichage pour debug (optionnel)
-    /*
-    Serial.print("Ticks G: "); Serial.print(compteurG);
-    Serial.print(" | Ticks D: "); Serial.print(compteurD);
-    Serial.print(" | Objectif: "); Serial.println(ticks_objectif);
-    */
-    delay(20); // Petit délai pour la boucle de contrôle
+    // Calcul du changement d'angle nécessaire
+    float dx = x_cible - x_actuel;
+    float dy = y_cible - y_actuel;
+    float angle_rotation = atan2(dy, dx) * 180.0 / PI;
+    
+    // Rotation vers la bonne direction
+    tourner_gyro(angle_rotation, 80);
+    delay(100);
+    
+    // Avancer du segment
+    avancer_distance(sqrt(dx*dx + dy*dy), 40);
+    delay(100);
+    
+    x_actuel = x_cible;
+    y_actuel = y_cible;
   }
-
-  moteurs_arret(); // Arrêter les moteurs une fois la distance atteinte
-  Serial.println("Distance atteinte.");
-  delay(200); // Petite pause après le mouvement
+  
+  // Fermeture du cercle (retour au point initial)
+  float dx_final = x_initial - x_actuel;
+  float dy_final = y_initial - y_actuel;
+  float dist_finale = sqrt(dx_final*dx_final + dy_final*dy_final);
+  
+  if (dist_finale > TOLERANCE_FERMETURE) {
+    float angle_final = atan2(dy_final, dx_final) * 180.0 / PI;
+    tourner_gyro(angle_final, 70);
+    delay(100);
+    avancer_distance(dist_finale, 40);
+  }
+  
+  Serial.println("Cercle terminé");
 }
 
+//Fonctions Wi-Fi et Serveur Web tres basique
+void handleRoot() {
+  String html_page = "<html><head><title>Drawbot Control</title></head><body>";
+  html_page += "<h1>Controle du Drawbot</h1>";
+  html_page += "<p><b>Commandes de Test:</b></p>";
+  html_page += "<ul><li><code>/commande?action=avancer&dist=DIST_CM&vit=VITESSE</code> (ex: dist=20, vit=60)</li>";
+  html_page += "<li><code>/commande?action=tourner&angle=ANGLE_DEG&vit=VITESSE</code> (ex: angle=90, vit=50)</li>";
+  html_page += "<li><code>/commande?action=asservir&etat=1</code> (1=activer, 0=désactiver)</li>";
+  html_page += "<li><code>/commande?action=cercle&rayon=RAYON_CM</code> (rayon entre 2 et 20 cm)</li></ul>";
+  html_page += "<p><b>Lancer Sequence Escalier:</b></p>";
+  html_page += "<ul><li><code>/commande?action=escalier</code></li></ul>";
+  html_page += "<p><b>Calibration (affecte les prochains mouvements):</b></p>";
+  html_page += "<ul><li><code>/commande?action=set_diametre&val=DIAM_CM</code> (actuel: " + String(DIAMETRE_ROUE_CM) + " cm)</li>";
+  html_page += "<li><code>/commande?action=set_ticks&val=TICKS_TOUR</code> (actuel: " + String(TICKS_PAR_TOUR_ENCODEUR) + ")</li></ul>";
+  html_page += "<p><b>Paramètres PID (pour avancer droit):</b></p>";
+  html_page += "<ul><li><code>/commande?action=set_pid&kp=VAL&ki=VAL&kd=VAL</code> (actuels: Kp=" + String(kp_pid) + ", Ki=" + String(ki_pid) + ", Kd=" + String(kd_pid) + ")</li></ul>";
+  html_page += "<p><em>Note: Les commandes sont envoyées au moniteur série.</em></p>";
+  html_page += "</body></html>";
+  server.send(200, "text/html", html_page); 
+}
+
+void handleCommande() {
+  String reponse_au_client = "Commande recue.";
+  if (server.hasArg("action")) {
+    String action = server.arg("action");
+    Serial.print("Action recue via Wi-Fi: "); Serial.println(action);
+
+    if (action == "avancer" && server.hasArg("dist") && server.hasArg("vit")) {
+      float dist = server.arg("dist").toFloat();
+      int vit = server.arg("vit").toInt();
+      reponse_au_client = "Commande: Avancer de " + String(dist) + " cm a vitesse " + String(vit);
+      avancer_distance(dist, vit);
+    } else if (action == "tourner" && server.hasArg("angle") && server.hasArg("vit")) {
+      float angle = server.arg("angle").toFloat();
+      int vit = server.arg("vit").toInt();
+      reponse_au_client = "Commande: Tourner de " + String(angle) + " deg a vitesse " + String(vit);
+      tourner_gyro(angle, vit);
+    } else if (action == "asservir" && server.hasArg("etat")) {
+      int etat = server.arg("etat").toInt();
+      if (etat == 1) {
+        etat_loop = -1; // Active l'asservissement
+        reset_angle_gyro(); // Réinitialise l'angle pour partir de 0
+        reponse_au_client = "Asservissement en orientation active";
+      } else {
+        etat_loop = 0; // Désactive l'asservissement
+        moteurs_arret();
+        reponse_au_client = "Asservissement en orientation desactive";
+      }
+      Serial.println(reponse_au_client);
+    } else if (action == "escalier") {
+      reponse_au_client = "Commande: Lancement sequence escalier.";
+      etat_loop = 1; // Démarre la séquence escalier
+    } else if (action == "set_diametre" && server.hasArg("val")) {
+      DIAMETRE_ROUE_CM = server.arg("val").toFloat();
+      CIRCONFERENCE_ROUE_CM = DIAMETRE_ROUE_CM * PI;
+      reponse_au_client = "Nouveau diametre roue: " + String(DIAMETRE_ROUE_CM) + " cm";
+      Serial.println(reponse_au_client);
+    } else if (action == "set_ticks" && server.hasArg("val")) {
+      TICKS_PAR_TOUR_ENCODEUR = server.arg("val").toInt();
+      reponse_au_client = "Nouveaux ticks/tour: " + String(TICKS_PAR_TOUR_ENCODEUR);
+      Serial.println(reponse_au_client);
+    } else if (action == "set_pid" && server.hasArg("kp") && server.hasArg("ki") && server.hasArg("kd")) {
+      kp_pid = server.arg("kp").toFloat();
+      ki_pid = server.arg("ki").toFloat();
+      kd_pid = server.arg("kd").toFloat();
+      reponse_au_client = "Nouveaux PID: Kp=" + String(kp_pid) + ", Ki=" + String(ki_pid) + ", Kd=" + String(kd_pid);
+      Serial.println(reponse_au_client);
+    } else if (action == "cercle" && server.hasArg("rayon")) {
+      float rayon = server.arg("rayon").toFloat();
+      reponse_au_client = "Commande: Dessiner un cercle de rayon " + String(rayon) + " cm";
+      Serial.println(reponse_au_client);
+      dessiner_cercle(rayon);
+    } else {
+      reponse_au_client = "Action inconnue ou parametres manquants.";
+      Serial.println(reponse_au_client);
+    }
+  } else {
+    reponse_au_client = "Aucune action specifiee.";
+    Serial.println(reponse_au_client);
+  }
+  server.send(200, "text/plain", reponse_au_client); 
+}
 
 // --- Setup ---
 void setup() {
-  Serial.begin(115200);
-  Serial.println("\n--- Init Drawbot (Style Etudiant - Escalier) ---");
+  Serial.begin(115200); 
+  Serial.println("\n--- Init Drawbot  ---");
+
   pinMode(LEDU1, OUTPUT); pinMode(LEDU2, OUTPUT);
-  digitalWrite(LEDU1, LOW); digitalWrite(LEDU2, LOW);
+  digitalWrite(LEDU1, LOW); digitalWrite(LEDU2, LOW); 
+
   Wire.begin(SDA_PIN, SCL_PIN);
   Serial.println("I2C OK.");
-  pinMode(EN_D, OUTPUT); pinMode(EN_G, OUTPUT);
+
+  pinMode(EN_D, OUTPUT); pinMode(EN_G, OUTPUT); 
   digitalWrite(EN_D, HIGH); digitalWrite(EN_G, HIGH); 
-  pinMode(IN_1_D, OUTPUT); pinMode(IN_2_D, OUTPUT);
-  pinMode(IN_1_G, OUTPUT); pinMode(IN_2_G, OUTPUT);
+  pinMode(IN_1_D, OUTPUT); pinMode(IN_2_D, OUTPUT); 
+  pinMode(IN_1_G, OUTPUT); pinMode(IN_2_G, OUTPUT); 
   ledcSetup(CANAL_D_AVANT, FREQ_PWM, RESOLUTION_PWM); ledcAttachPin(IN_2_D, CANAL_D_AVANT);
   ledcSetup(CANAL_D_ARRIERE, FREQ_PWM, RESOLUTION_PWM); ledcAttachPin(IN_1_D, CANAL_D_ARRIERE);
   ledcSetup(CANAL_G_AVANT, FREQ_PWM, RESOLUTION_PWM); ledcAttachPin(IN_1_G, CANAL_G_AVANT);
   ledcSetup(CANAL_G_ARRIERE, FREQ_PWM, RESOLUTION_PWM); ledcAttachPin(IN_2_G, CANAL_G_ARRIERE);
-  moteurs_arret();
+  moteurs_arret(); 
   Serial.println("Moteurs OK.");
+
   pinMode(ENC_G_CH_A, INPUT_PULLUP); pinMode(ENC_G_CH_B, INPUT_PULLUP);
   pinMode(ENC_D_CH_A, INPUT_PULLUP); pinMode(ENC_D_CH_B, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(ENC_G_CH_A), isr_enc_g, RISING);
   attachInterrupt(digitalPinToInterrupt(ENC_D_CH_A), isr_enc_d, RISING);
-  reset_compteurs_enc();
+  reset_compteurs_enc(); 
   Serial.println("Encodeurs OK.");
-  if (myIMU.begin() != 0) {
-    Serial.println("ERREUR IMU!");
+
+  if (myIMU.begin() != 0) { 
+    Serial.println("ERREUR IMU! Verification des connexions I2C impossible de continuer.");
     while (true) { digitalWrite(LEDU1, HIGH); delay(100); digitalWrite(LEDU1, LOW); delay(100); } 
   }
-  Serial.println("IMU detectee. Calibration gyro Z (2s)...");
-  long t_calib = millis(); int n_calib = 0; gyroZ_offset = 0;
-  while (millis() - t_calib < 2000) {
-    gyroZ_offset += myIMU.readFloatGyroZ(); n_calib++; delay(5);
+  Serial.println("IMU detectee. Calibration du gyroscope Z en cours (2s)...");
+  long t_calib_start = millis(); 
+  int n_calib_samples = 0; 
+  gyroZ_offset = 0.0;
+  while (millis() - t_calib_start < 2000) { 
+    gyroZ_offset += myIMU.readFloatGyroZ();
+    n_calib_samples++;
+    delay(5); 
   }
-  if (n_calib > 0) gyroZ_offset /= n_calib;
-  Serial.print("Offset Gyro Z: "); Serial.println(gyroZ_offset);
-  imuOK = true;
+  if (n_calib_samples > 0) {
+    gyroZ_offset /= n_calib_samples; 
+  }
+  Serial.print("Offset Gyro Z calcule: "); Serial.println(gyroZ_offset);
+  imuOK = true; 
   reset_angle_gyro(); 
-  Serial.println("IMU OK.");
-  Serial.println("--- Drawbot Pret --- ");
+  Serial.println("IMU OK et calibree.");
+
+  // Configuration et démarrage du Wi-Fi AP et Serveur Web
+  Serial.println("Configuration du Point d'Acces Wi-Fi...");
+  WiFi.softAP(ssid_ap, password_ap);
+  IPAddress ip_ap = WiFi.softAPIP();
+  Serial.print("Point d'Acces Wi-Fi '" + String(ssid_ap) + "' demarre.");
+  Serial.print(" Adresse IP: "); Serial.println(ip_ap);
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/commande", HTTP_GET, handleCommande);
+  server.begin();
+  Serial.println("Serveur HTTP demarre. Robot pret pour commandes Wi-Fi ou sequence escalier.");
   digitalWrite(LEDU2, HIGH); 
-  temps_etat_loop = millis();
+  etat_loop = 0; // Initialement, attend les commandes Wi-Fi
 }
 
 // --- Loop ---
 void loop() {
-  // Machine a etats pour tester l'escalier
-  switch (etat_loop) {
-    case 0: // Prêt à commencer la séquence de l'escalier
-      Serial.println("Loop Etat 0: Debut sequence escalier");
-      etat_loop = 10; // Premier segment de la première marche
-      break;
+  server.handleClient(); // Gère les requêtes client pour le serveur web
 
-    // MARCHE 1
-    case 10: // Avancer de 20cm (premier segment horizontal)
-      Serial.println("Marche 1 - Segment 1 (avance 20cm)");
-      avancer_distance(20.0, 60); // Avance de 20cm à vitesse 100
-      etat_loop = 11;
-      break;
-    case 11: // Tourner de 90 degrés à droite
-      Serial.println("Marche 1 - Virage 1 (+90 deg)");
-      tourner_gyro(90.0, 60); // Tourne à droite
-      etat_loop = 12;
-      break;
-    case 12: // Avancer de 20cm (premier segment vertical)
-      Serial.println("Marche 1 - Segment 2 (avance 20cm)");
-      avancer_distance(20.0, 60);
-      etat_loop = 13; // On pourrait s'arrêter ici pour une seule marche, ou continuer
-      break;
-    // Pour un escalier, il faudrait tourner à gauche pour se préparer à la prochaine marche
-    case 13: // Tourner de 90 degrés à gauche pour la marche suivante
-      Serial.println("Marche 1 - Virage 2 (-90 deg pour préparer marche 2)");
-      tourner_gyro(-90.0, 60); // Tourne à gauche
-      etat_loop = 20; // Prêt pour la marche 2
-      break;
-
-    // MARCHE 2 (à ajouter sur le même modèle)
-    case 20: 
-      Serial.println("Marche 2 - Segment 1 (avance 20cm)");
-      avancer_distance(20.0, 60); 
-      etat_loop = 21;
-      break;
-    case 21: 
-      Serial.println("Marche 2 - Virage 1 (+90 deg)");
-      tourner_gyro(90.0, 60); 
-      etat_loop = 22;
-      break;
-    case 22: 
-      Serial.println("Marche 2 - Segment 2 (avance 20cm)");
-      avancer_distance(20.0, 60);
-      etat_loop = 23; 
-      break;
-    case 23: 
-      Serial.println("Marche 2 - Virage 2 (-90 deg pour préparer marche 3)");
-      tourner_gyro(-90.0, 60); 
-      etat_loop = 30; // Prêt pour la marche 3
-      break;
-
-    // MARCHE 3 (à ajouter sur le même modèle)
-    case 30: 
-      Serial.println("Marche 3 - Segment 1 (avance 20cm)");
-      avancer_distance(20.0, 60); 
-      etat_loop = 31;
-      break;
-    case 31: 
-      Serial.println("Marche 3 - Virage 1 (+90 deg)");
-      tourner_gyro(90.0, 60); 
-      etat_loop = 32;
-      break;
-    case 32: 
-      Serial.println("Marche 3 - Segment 2 (avance 20cm)");
-      avancer_distance(20.0, 60);
-      etat_loop = 99; // Fin de l'escalier
-      break;
-
-    case 99: // Fin de la séquence
-      Serial.println("Sequence escalier terminee.");
-      digitalWrite(LEDU1, !digitalRead(LEDU1)); 
-      delay(500);
-      // Pour ne pas recommencer, on reste ici. Pour recommencer : etat_loop = 0;
-      break;
+  // Machine à états pour la séquence de l'escalier (si activée)
+  if (etat_loop >= 1 && etat_loop <= 99) { // Si on est dans un état de la séquence escalier
+    switch (etat_loop) {
+      case 1: // État initial: Prêt à commencer la séquence
+        Serial.println("Loop Etat 1: Debut sequence escalier via Wi-Fi");
+        etat_loop = 10; 
+        break;
+      // MARCHE 1
+      case 10: 
+        Serial.println("Marche 1 - Segment 1 (avance 20cm)");
+        avancer_distance(10.0, 70); 
+        if(etat_loop != 0) etat_loop = 11;
+        break;
+      case 11: 
+        Serial.println("Marche 1 - Angle droit 1");
+        moteurs_arret();
+        delay(500);
+        // Rotation sur place plus précise
+        tourner_gyro(90.0, 70); // Vitesse réduite pour plus de précision
+        delay(500);
+        avancer_distance(10.0, 70);
+        if(etat_loop != 0) etat_loop = 12;
+        break;
+      case 12: 
+        Serial.println("Marche 1 - Angle droit 2");
+        moteurs_arret();
+        delay(500);
+        tourner_gyro(-90.0, 70);
+        delay(500);
+        avancer_distance(10.0, 70);
+        if(etat_loop != 0) etat_loop = 20;
+        break;
+      // MARCHE 2 
+      case 20: 
+        Serial.println("Marche 2 - Angle droit 1");
+        moteurs_arret();
+        delay(500);
+        tourner_gyro(90.0, 70);
+        delay(500);
+        avancer_distance(10.0, 70);
+        if(etat_loop != 0) etat_loop = 21;
+        break;
+      case 21: 
+        Serial.println("Marche 2 - Angle droit 2");
+        moteurs_arret();
+        delay(500);
+        tourner_gyro(-90.0, 70);
+        delay(500);
+        avancer_distance(10.0, 70);
+        if(etat_loop != 0) etat_loop = 30;
+        break;
+      // MARCHE 3
+      case 30: 
+        Serial.println("Marche 3 - Angle droit 1");
+        moteurs_arret();
+        delay(500);
+        tourner_gyro(90.0, 70);
+        delay(500);
+        avancer_distance(10.0, 70);
+        if(etat_loop != 0) etat_loop = 31;
+        break;
+      case 31: 
+        Serial.println("Marche 3 - Segment final");
+        avancer_distance(10.0, 70);
+        if(etat_loop != 0) etat_loop = 99;
+        break;
+      case 99: 
+        Serial.println("Sequence escalier (3 marches) terminee.");
+        digitalWrite(LEDU1, !digitalRead(LEDU1)); 
+        delay(500);
+        etat_loop = 0; // Retour à l'attente de commandes Wi-Fi
+        break;
+    }
+  } else if (etat_loop == -1) { // Mode asservissement en orientation
+    asservissement_orientation();
+    delay(10); // Petit délai pour ne pas surcharger le processeur
+  } else {
+    // Si etat_loop est 0, le robot attend les commandes Wi-Fi.
+    // On peut faire clignoter une LED pour indiquer cet état d'attente.
+    digitalWrite(LEDU2, !digitalRead(LEDU2)); // Fait clignoter LED2 lentement
+    delay(500);
   }
 }
 
