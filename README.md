@@ -8,17 +8,16 @@
 # Key Features
 - Motor Control
 
-> PID tuning for precise wheel positioning (motor_control.ino).
+> PID tuning for precise wheel positioning.
 
  > Encoder pulse counting for distance/angle tracking.
 - Wireless Commands
 
-> UART/Bluetooth/Wi-Fi input parsing (commands.ino).
+> UART/Bluetooth/Wi-Fi input parsing.
 
 > Example: CIRCLE 10cm draws a 10cm-radius circle.
 
 - Sensor Fusion
 
-> IMU (LSM6DS3) for tilt compensation.
 
-> Magnetometer (LIS3MDL) for north alignment (compass.ino).
+> Magnetometer (LIS3MDL) for north alignment.
