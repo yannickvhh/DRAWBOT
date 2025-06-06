@@ -1,9 +1,3 @@
-/***************************************************************************
- * Drawbot.ino - Projet Robot Dessinateur (Style Etudiant)
- * ECE Paris - Projet Systèmes Bouclés
- * Séquence Escalier et Test Mouvements - Version avec commandes Wi-Fi
- ***************************************************************************/
-
 #include <Arduino.h>
 #include <Wire.h>              // Pour I2C (IMU)
 #include <SparkFunLSM6DS3.h> // Pour l'IMU LSM6DS3
