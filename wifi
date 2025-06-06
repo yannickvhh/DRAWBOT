@@ -1,7 +1,3 @@
-// Projet Drawbot - Test Communication Wi-Fi en Mode Point d'Accès ( l'ESP32 crée son propre réseau Wi-Fi )
-// Ce code configure l'ESP32 pour qu'il crée son propre  Wi-Fi
-// et start un petit serveur web pour recup des commandes.
-
 #include <WiFi.h>
 #include <WebServer.h> // Bibliothèque pr serveur web 
 
